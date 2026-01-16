@@ -9,9 +9,48 @@
 </head>
 <body>
     <div class="container">
-        <header>
-            <h1>Unity Rewards Dashboard</h1>
-            <div id="auth-status" class="status-badge">Checking Auth...</div>
+        <header class="header">
+            <img class="unity-logo" src="https://unitynodes.io/images/Unity-Icon_1.png" alt="Unity" />
+            <div class="token-debug" id="token-debug">
+                <div>Access: <span id="debug-access-token">-</span></div>
+                <div>Refresh: <span id="debug-refresh-token">-</span></div>
+                <div>Expires: <span id="debug-expires-at">-</span></div>
+                <div>Next refresh: <span id="debug-next-refresh">-</span></div>
+            </div>
+            <div id="summary-strip" class="summary-strip">
+                <div class="summary-row">
+                    <div class="summary-item">
+                        <span class="summary-label">Daily Average</span>
+                        <span id="summary-daily-average">-</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">Total</span>
+                        <span id="summary-total">-</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">Last 7 Days</span>
+                        <span id="summary-last7">-</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">This Week</span>
+                        <span id="summary-week">-</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">Today</span>
+                        <span id="summary-today">-</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="summary-label">Redeemable</span>
+                        <span id="summary-redeemable">-</span>
+                    </div>
+                </div>
+            </div>
+            <div class="wallet-menu" id="wallet-menu">
+                <button id="auth-status" class="status-badge" type="button">Checking Auth...</button>
+                <div id="wallet-menu-panel" class="wallet-menu-panel" aria-hidden="true">
+                    <button id="logout-btn" class="btn logout-btn" type="button">Logout</button>
+                </div>
+            </div>
         </header>
 
         <!-- Auth Section -->
@@ -24,59 +63,24 @@
                     <p class="form-hint">Upload an array of entries like { "licenseId": "...", "alias": "..." } or { "licenseId": "...", "deviceName": "..." }. File is only kept in-memory for this session.</p>
                     <div id="license-file-status" class="text-muted">No file selected; showing license IDs as ...XXXX.</div>
                 </div>
-                <div class="form-group">
-                    <label for="token-input">Bearer Token</label>
-                    <input type="password" id="token-input" placeholder="Enter Supabase Bearer Token" required>
-                </div>
                 <button type="submit" class="btn">Set Configuration</button>
+                <div class="form-group">
+                    <label>Web3 Login</label>
+                    <div class="web3-actions">
+                        <button type="button" class="btn" id="web3-connect-btn">Connect MetaMask</button>
+                        <button type="button" class="btn" id="web3-login-btn" disabled>Sign &amp; Login</button>
+                        <button type="button" class="btn" id="web3-disconnect-btn" disabled>Disconnect</button>
+                    </div>
+                    <div id="web3-status" class="text-muted">Wallet not connected.</div>
+                </div>
             </form>
         </section>
 
         <!-- Dashboard Content (Hidden until auth) -->
         <main id="dashboard-content" style="display: none;">
-            <div class="controls card" style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
-                    <button id="refresh-btn" class="btn">Refresh Data</button>
-                    <span id="last-updated" style="margin-left: 10px;"></span>
-                </div>
-                <button id="logout-btn" class="btn" style="background-color: #dc3545;">Logout</button>
-            </div>
 
             <!-- Summary Cards -->
             <div class="summary-grid">
-                <div class="card metric" data-expandable="true">
-                    <div class="card-header">
-                        <div class="card-title">
-                            <h3>Total Amount <span class="tooltip" title="Sum of all reward amounts across all devices and days">ℹ️</span></h3>
-                            <button type="button" class="card-expand-btn" aria-label="Expand card" title="Expand card">
-                                <span aria-hidden="true">⤢</span>
-                            </button>
-                        </div>
-                    </div>
-                    <p id="metric-total-amount">-</p>
-                </div>
-                <div class="card metric" data-expandable="true">
-                    <div class="card-header">
-                        <div class="card-title">
-                            <h3>Total Allocations <span class="tooltip" title="Total count of individual reward records received">ℹ️</span></h3>
-                            <button type="button" class="card-expand-btn" aria-label="Expand card" title="Expand card">
-                                <span aria-hidden="true">⤢</span>
-                            </button>
-                        </div>
-                    </div>
-                    <p id="metric-total-count">-</p>
-                </div>
-                <div class="card metric" data-expandable="true">
-                    <div class="card-header">
-                        <div class="card-title">
-                            <h3>Daily Average by Device <span class="tooltip" title="Average rewards per allocation per day per device">ℹ️</span></h3>
-                            <button type="button" class="card-expand-btn" aria-label="Expand card" title="Expand card">
-                                <span aria-hidden="true">⤢</span>
-                            </button>
-                        </div>
-                    </div>
-                    <p id="metric-daily-avg-by-device">-</p>
-                </div>
             </div>
 
             <!-- Charts -->
@@ -203,6 +207,7 @@
             <div id="card-overlay-body" class="card-overlay-body"></div>
         </div>
     </div>
+    <script src="config.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
