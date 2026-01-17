@@ -1,6 +1,17 @@
 // Configuration
-const SUPABASE_URL = "https://vtllpagtmncbkywsqccd.supabase.co/rest/v1/rpc/rewards_get_allocations";
-const API_KEY = "sb_publishable_yKqi0fu5vV6G4ryUIMJuzw_NCoFEl1c";
+const UNITY_CONFIG = window.UNITY_CONFIG || {};
+const AUTH_BASE_URL = UNITY_CONFIG.BASE_URL || "https://api.unityedge.io";
+const REFRESH_INTERVAL_MS = UNITY_CONFIG.REFRESH_INTERVAL_MS || 300000;
+const SUPABASE_URL = UNITY_CONFIG.SUPABASE_URL || "https://vtllpagtmncbkywsqccd.supabase.co/rest/v1/rpc/rewards_get_allocations";
+const SUMMARY_URL = UNITY_CONFIG.SUMMARY_URL || "https://vtllpagtmncbkywsqccd.supabase.co/rest/v1/rpc/rewards_get_allocations_summary?limit=1";
+const BALANCE_URL = UNITY_CONFIG.BALANCE_URL || "https://vtllpagtmncbkywsqccd.supabase.co/rest/v1/rpc/rewards_get_balance";
+const API_KEY = UNITY_CONFIG.API_KEY || "";
+const TOKEN_URL = UNITY_CONFIG.TOKEN_URL || "https://api.unityedge.io/auth/v1/token?grant_type=web3";
+const CHAIN_ID = UNITY_CONFIG.CHAIN_ID || "";
+const DOMAIN = UNITY_CONFIG.DOMAIN || "unitynodes.io";
+const URI = UNITY_CONFIG.URI || "https://unitynodes.io";
+const TERMS_URL = UNITY_CONFIG.TERMS_URL || "https://unitynodes.io/terms-and-conditions.html";
+const DEBUG_INFO = UNITY_CONFIG.DEBUG_INFO !== undefined ? UNITY_CONFIG.DEBUG_INFO : true;
 
 // State
 let charts = {};
@@ -11,6 +22,10 @@ let licenseAliasMap = new Map();
 let licenseGroupMap = new Map(); // Map of licenseId to group
 let availableGroups = []; // Array of unique groups from license file
 let dailyAvgGroupFilter = 'all'; // Track selected group filter
+let web3Account = '';
+let web3Signature = '';
+let web3Busy = false;
+let refreshIntervalId = null;
 
 const tableComparators = {
     date: (a, b) => a.date.localeCompare(b.date),
@@ -30,10 +45,26 @@ const tableDefaultDirections = {
 
 // DOM Elements
 const authStatus = document.getElementById('auth-status');
+const walletMenu = document.getElementById('wallet-menu');
+const walletMenuPanel = document.getElementById('wallet-menu-panel');
+const summaryTotal = document.getElementById('summary-total');
+const summaryDailyAverage = document.getElementById('summary-daily-average');
+const summaryLast7 = document.getElementById('summary-last7');
+const summaryWeek = document.getElementById('summary-week');
+const summaryToday = document.getElementById('summary-today');
+const summaryRedeemable = document.getElementById('summary-redeemable');
+const debugAccessToken = document.getElementById('debug-access-token');
+const debugRefreshToken = document.getElementById('debug-refresh-token');
+const debugExpiresAt = document.getElementById('debug-expires-at');
+const debugNextRefresh = document.getElementById('debug-next-refresh');
 const authSection = document.getElementById('auth-section');
 const dashboardContent = document.getElementById('dashboard-content');
 const tokenForm = document.getElementById('token-form');
 const tokenInput = document.getElementById('token-input');
+const web3ConnectBtn = document.getElementById('web3-connect-btn');
+const web3LoginBtn = document.getElementById('web3-login-btn');
+const web3DisconnectBtn = document.getElementById('web3-disconnect-btn');
+const web3Status = document.getElementById('web3-status');
 const licenseFileInput = document.getElementById('license-file-input');
 const licenseFileStatus = document.getElementById('license-file-status');
 const refreshBtn = document.getElementById('refresh-btn');
@@ -49,6 +80,14 @@ const cardOverlayClose = document.getElementById('card-overlay-close');
 document.addEventListener('DOMContentLoaded', () => {
     initializeCardExpansion();
     initializeTableSorting();
+    initializeWalletMenu();
+    updateWeb3Ui();
+    if (!DEBUG_INFO) {
+        const debugElement = document.getElementById('token-debug');
+        if (debugElement) {
+            debugElement.style.display = 'none';
+        }
+    }
     checkAuth();
 });
 
@@ -83,10 +122,20 @@ if (licenseFileInput) {
     });
 }
 
+if (web3ConnectBtn) {
+    web3ConnectBtn.addEventListener('click', connectWallet);
+}
+
+if (web3LoginBtn) {
+    web3LoginBtn.addEventListener('click', loginWithWallet);
+}
+
+if (web3DisconnectBtn) {
+    web3DisconnectBtn.addEventListener('click', disconnectWallet);
+}
+
 tokenForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const token = tokenInput.value.trim();
-    if (!token) return;
 
     try {
         await loadLicenseAliasesFromInput();
@@ -95,19 +144,367 @@ tokenForm.addEventListener('submit', async (e) => {
         return;
     }
 
+    if (!tokenInput) {
+        updateLicenseFileStatus('Aliases updated. Use Web3 login to authenticate.');
+        return;
+    }
+
+    const token = tokenInput.value.trim();
+    if (!token) {
+        updateLicenseFileStatus('Aliases updated. Use Web3 login to authenticate.');
+        return;
+    }
+
     // Save to Session Storage (cleared when tab closes)
     sessionStorage.setItem('unity_rewards_token', token);
+    sessionStorage.removeItem('unity_rewards_refresh_token');
+    sessionStorage.removeItem('unity_rewards_expires_at');
+    sessionStorage.removeItem('unity_rewards_wallet');
     tokenInput.value = '';
     checkAuth();
 });
 
-refreshBtn.addEventListener('click', loadData);
+if (refreshBtn) {
+    refreshBtn.addEventListener('click', loadData);
+}
 logoutBtn.addEventListener('click', logout);
 
 // Functions
 function updateLicenseFileStatus(message) {
     if (licenseFileStatus) {
         licenseFileStatus.textContent = message;
+    }
+}
+
+function startAutoRefresh() {
+    if (refreshIntervalId) return;
+    refreshIntervalId = setInterval(() => {
+        loadData();
+        if (debugNextRefresh) {
+            debugNextRefresh.textContent = new Date(Date.now() + REFRESH_INTERVAL_MS).toLocaleString();
+        }
+    }, REFRESH_INTERVAL_MS);
+}
+
+function stopAutoRefresh() {
+    if (!refreshIntervalId) return;
+    clearInterval(refreshIntervalId);
+    refreshIntervalId = null;
+}
+
+function getAuthState() {
+    const accessToken = sessionStorage.getItem('unity_rewards_token');
+    const refreshToken = sessionStorage.getItem('unity_rewards_refresh_token');
+    const expiresAt = sessionStorage.getItem('unity_rewards_expires_at');
+    return {
+        accessToken,
+        refreshToken,
+        expiresAt: expiresAt ? Number(expiresAt) : null
+    };
+}
+
+function setAuthState({ accessToken, refreshToken, expiresAt }) {
+    if (accessToken) {
+        sessionStorage.setItem('unity_rewards_token', accessToken);
+    }
+    if (refreshToken) {
+        sessionStorage.setItem('unity_rewards_refresh_token', refreshToken);
+    }
+    if (expiresAt) {
+        sessionStorage.setItem('unity_rewards_expires_at', String(expiresAt));
+    }
+}
+
+function needsRefresh(expiresAt, skewMinutes = 5) {
+    if (!expiresAt) return false;
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    return (expiresAt - nowSeconds) < (skewMinutes * 60);
+}
+
+async function refreshAccessToken(authState) {
+    if (!authState.refreshToken) {
+        return authState;
+    }
+
+    const response = await fetch(`${AUTH_BASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+        method: 'POST',
+        headers: {
+            apikey: API_KEY,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ refresh_token: authState.refreshToken })
+    });
+
+    if (!response.ok) {
+        throw new Error('Refresh token request failed.');
+    }
+
+    const payload = await response.json().catch(() => ({}));
+    const expiresAt = payload.expires_at
+        ? Number(payload.expires_at)
+        : (payload.expires_in ? Math.floor(Date.now() / 1000) + Number(payload.expires_in) : null);
+
+    const updated = {
+        accessToken: payload.access_token || authState.accessToken,
+        refreshToken: payload.refresh_token || authState.refreshToken,
+        expiresAt
+    };
+
+    setAuthState(updated);
+    return updated;
+}
+
+async function ensureFreshAuth() {
+    let authState = getAuthState();
+    if (!authState.accessToken) return authState;
+
+    if (authState.refreshToken && needsRefresh(authState.expiresAt)) {
+        authState = await refreshAccessToken(authState);
+    }
+
+    return authState;
+}
+
+async function fetchWithAuth(url, options = {}, retryCount = 0) {
+    let authState = await ensureFreshAuth();
+    if (!authState.accessToken) {
+        return { response: null, authState };
+    }
+
+    const headers = {
+        ...(options.headers || {}),
+        apikey: API_KEY,
+        Authorization: `Bearer ${authState.accessToken}`
+    };
+
+    const response = await fetch(url, { ...options, headers });
+
+    if (response.status === 401 && retryCount === 0 && authState.refreshToken) {
+        authState = await refreshAccessToken(authState);
+        return fetchWithAuth(url, options, 1);
+    }
+
+    return { response, authState };
+}
+
+function initializeWalletMenu() {
+    if (!authStatus || !walletMenuPanel || !walletMenu) return;
+
+    authStatus.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const isOpen = walletMenuPanel.classList.toggle('is-open');
+        walletMenuPanel.setAttribute('aria-hidden', String(!isOpen));
+    });
+
+    document.addEventListener('click', (event) => {
+        if (!walletMenu.contains(event.target)) {
+            walletMenuPanel.classList.remove('is-open');
+            walletMenuPanel.setAttribute('aria-hidden', 'true');
+        }
+    });
+}
+
+function formatMicros(value) {
+    if (value === null || value === undefined) return '-';
+    const numeric = Number(value);
+    if (Number.isNaN(numeric)) return '-';
+    const scaled = numeric / 1_000_000;
+    return scaled.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function resetSummary() {
+    if (!summaryTotal) return;
+    if (summaryDailyAverage) {
+        summaryDailyAverage.textContent = '-';
+    }
+    summaryTotal.textContent = '-';
+    summaryLast7.textContent = '-';
+    summaryWeek.textContent = '-';
+    summaryToday.textContent = '-';
+    if (summaryRedeemable) {
+        summaryRedeemable.textContent = '-';
+    }
+}
+
+async function loadSummary() {
+    if (!summaryTotal) {
+        resetSummary();
+        return;
+    }
+
+    try {
+        const { response } = await fetchWithAuth(SUMMARY_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({})
+        });
+
+        if (!response || response.status === 401) {
+            resetSummary();
+            return;
+        }
+
+        const payload = await response.json().catch(() => []);
+        const summary = Array.isArray(payload) ? payload[0] : null;
+
+        summaryTotal.textContent = formatMicros(summary?.totalAmountMicros);
+        summaryLast7.textContent = formatMicros(summary?.last7DaysAmountMicros);
+        summaryWeek.textContent = formatMicros(summary?.thisWeekAmountMicros);
+        summaryToday.textContent = formatMicros(summary?.todayAmountMicros);
+    } catch (err) {
+        console.error(err);
+        resetSummary();
+    }
+}
+
+async function loadBalance() {
+    if (!summaryRedeemable) {
+        if (summaryRedeemable) summaryRedeemable.textContent = '-';
+        return;
+    }
+
+    try {
+        const { response } = await fetchWithAuth(BALANCE_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({})
+        });
+
+        if (!response || response.status === 401) {
+            summaryRedeemable.textContent = '-';
+            return;
+        }
+
+        const payload = await response.json().catch(() => null);
+        summaryRedeemable.textContent = formatMicros(payload);
+    } catch (err) {
+        console.error(err);
+        summaryRedeemable.textContent = '-';
+    }
+}
+
+function updateWeb3Ui(message) {
+    if (!web3Status || !web3ConnectBtn || !web3LoginBtn || !web3DisconnectBtn) return;
+
+    const hasConfig = Boolean(API_KEY && CHAIN_ID);
+    const hasWallet = Boolean(web3Account);
+    const statusMessage = message
+        || (hasWallet ? `Wallet connected: ${web3Account}` : 'Wallet not connected.');
+
+    web3Status.textContent = statusMessage;
+    web3ConnectBtn.disabled = web3Busy;
+    web3LoginBtn.disabled = web3Busy || !hasWallet || !hasConfig;
+    web3DisconnectBtn.disabled = web3Busy || !hasWallet;
+
+    if (!hasConfig && hasWallet) {
+        web3Status.textContent = 'Missing API key or chain ID in config.js.';
+    }
+}
+
+function buildWeb3Message(walletAddress) {
+    const issuedAt = new Date().toISOString();
+    return `${DOMAIN} wants you to sign in with your Ethereum account:\n${walletAddress}\n\nI accept the UnityNodes Terms of Service: ${TERMS_URL}\nURI: ${URI}\nVersion: 1\nChain ID: ${CHAIN_ID}\nIssued At: ${issuedAt}`;
+}
+
+async function connectWallet() {
+    if (!window.ethereum) {
+        updateWeb3Ui('MetaMask is not available in this browser.');
+        return;
+    }
+
+    try {
+        web3Busy = true;
+        updateWeb3Ui('Connecting to MetaMask...');
+        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+        web3Account = accounts?.[0] || '';
+        updateWeb3Ui();
+    } catch (err) {
+        updateWeb3Ui(err?.message || 'Failed to connect wallet.');
+    } finally {
+        web3Busy = false;
+        updateWeb3Ui();
+    }
+}
+
+function disconnectWallet() {
+    web3Account = '';
+    web3Signature = '';
+    updateWeb3Ui('Wallet disconnected.');
+}
+
+async function loginWithWallet() {
+    if (!window.ethereum) {
+        updateWeb3Ui('MetaMask is not available in this browser.');
+        return;
+    }
+
+    if (!API_KEY || !CHAIN_ID) {
+        updateWeb3Ui('Missing API key or chain ID in config.js.');
+        return;
+    }
+
+    if (!web3Account) {
+        updateWeb3Ui('Connect your wallet first.');
+        return;
+    }
+
+    try {
+        web3Busy = true;
+        updateWeb3Ui('Signing message...');
+
+        const message = buildWeb3Message(web3Account);
+        const signed = await window.ethereum.request({
+            method: 'personal_sign',
+            params: [message, web3Account]
+        });
+
+        web3Signature = signed;
+
+        const response = await fetch(TOKEN_URL, {
+            method: 'POST',
+            headers: {
+                accept: '*/*',
+                apikey: API_KEY,
+                authorization: `Bearer ${API_KEY}`,
+                'content-type': 'application/json;charset=UTF-8',
+                'x-client-info': 'supabase-js-web/2.84.0',
+                'x-supabase-api-version': '2024-01-01'
+            },
+            body: JSON.stringify({
+                chain: 'ethereum',
+                message,
+                signature: signed
+            })
+        });
+
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(payload?.error || payload?.message || 'Web3 login failed.');
+        }
+
+        const accessToken = payload?.access_token || payload?.token || payload?.session?.access_token;
+        if (!accessToken) {
+            throw new Error('Token missing from Web3 response.');
+        }
+
+        const refreshToken = payload?.refresh_token;
+        const expiresAt = payload?.expires_at
+            ? Number(payload.expires_at)
+            : (payload?.expires_in ? Math.floor(Date.now() / 1000) + Number(payload.expires_in) : null);
+
+        setAuthState({ accessToken, refreshToken, expiresAt });
+        sessionStorage.setItem('unity_rewards_wallet', web3Account);
+        updateWeb3Ui('Web3 login successful. Token stored.');
+        checkAuth();
+    } catch (err) {
+        updateWeb3Ui(err?.message || 'Web3 login failed.');
+    } finally {
+        web3Busy = false;
+        updateWeb3Ui();
     }
 }
 
@@ -199,19 +596,87 @@ function populateGroupFilterDropdown() {
 }
 
 function checkAuth() {
-    const token = sessionStorage.getItem('unity_rewards_token');
+    const authState = getAuthState();
+    const token = authState.accessToken;
+    if (!web3Account) {
+        const storedWallet = sessionStorage.getItem('unity_rewards_wallet');
+        if (storedWallet) {
+            web3Account = storedWallet;
+        }
+    }
+    const shortWallet = web3Account
+        ? `${web3Account.slice(0, 4)}...${web3Account.slice(-4)}`
+        : 'Not connected';
     
     if (token) {
-        authStatus.textContent = 'Authenticated';
+        document.body.classList.remove('wallet-disconnected');
+        authStatus.textContent = `Wallet: ${shortWallet}`;
         authStatus.className = 'status-badge active';
+        authStatus.style.display = 'inline-flex';
+        if (walletMenu) {
+            walletMenu.style.display = 'inline-flex';
+        }
+        if (walletMenuPanel) {
+            walletMenuPanel.classList.remove('is-open');
+            walletMenuPanel.setAttribute('aria-hidden', 'true');
+        }
+        if (summaryTotal) {
+            summaryTotal.closest('.summary-strip').style.display = 'grid';
+        }
+        if (debugAccessToken) {
+            const access = authState.accessToken;
+            debugAccessToken.textContent = access
+                ? `${access.slice(0, 5)}...${access.slice(-5)}`
+                : '-';
+        }
+        if (debugRefreshToken) {
+            debugRefreshToken.textContent = authState.refreshToken || '-';
+        }
+        if (debugExpiresAt) {
+            debugExpiresAt.textContent = authState.expiresAt
+                ? new Date(authState.expiresAt * 1000).toLocaleString()
+                : '-';
+        }
+        if (debugNextRefresh) {
+            debugNextRefresh.textContent = new Date(Date.now() + REFRESH_INTERVAL_MS).toLocaleString();
+        }
+        startAutoRefresh();
         authSection.style.display = 'none';
         dashboardContent.style.display = 'block';
         loadData();
+        loadSummary();
+        loadBalance();
     } else {
-        authStatus.textContent = 'Token Missing';
+        document.body.classList.add('wallet-disconnected');
+        authStatus.textContent = '';
         authStatus.className = 'status-badge missing';
+        authStatus.style.display = 'none';
+        if (walletMenu) {
+            walletMenu.style.display = 'none';
+        }
+        if (walletMenuPanel) {
+            walletMenuPanel.classList.remove('is-open');
+            walletMenuPanel.setAttribute('aria-hidden', 'true');
+        }
+        if (summaryTotal) {
+            summaryTotal.closest('.summary-strip').style.display = 'none';
+        }
+        if (debugAccessToken) {
+            debugAccessToken.textContent = '-';
+        }
+        if (debugRefreshToken) {
+            debugRefreshToken.textContent = '-';
+        }
+        if (debugExpiresAt) {
+            debugExpiresAt.textContent = '-';
+        }
+        if (debugNextRefresh) {
+            debugNextRefresh.textContent = '-';
+        }
+        stopAutoRefresh();
         authSection.style.display = 'block';
         dashboardContent.style.display = 'none';
+        resetSummary();
     }
 }
 
@@ -220,11 +685,16 @@ function logout() {
         sessionStorage.clear();
         currentData = null;
         licenseAliasMap = new Map();
+        web3Signature = '';
+        web3Account = '';
+        stopAutoRefresh();
         if (licenseFileInput) {
             licenseFileInput.value = '';
         }
         updateLicenseFileStatus('No file selected; showing license IDs as ...XXXX.');
         checkAuth();
+        updateWeb3Ui();
+        resetSummary();
     }
 }
 
@@ -350,29 +820,32 @@ function closeCardOverlay() {
 }
 
 async function loadData() {
-    refreshBtn.disabled = true;
-    refreshBtn.textContent = 'Loading...';
+    if (refreshBtn) {
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = 'Loading...';
+    }
     
     try {
-        const token = sessionStorage.getItem('unity_rewards_token');
-        if (!token) {
+        const authState = getAuthState();
+        if (!authState.accessToken) {
             checkAuth();
             return;
         }
 
         // Fetch Data
-        const allocationsRes = await fetch(SUPABASE_URL, {
+        const { response: allocationsRes } = await fetchWithAuth(SUPABASE_URL, {
             method: 'POST',
             headers: {
-                "apikey": API_KEY,
-                "Authorization": `Bearer ${token}`,
                 "Content-Type": "application/json"
             },
             body: JSON.stringify({ skip: null, take: null })
         });
 
-        if (allocationsRes.status === 401) {
+        if (!allocationsRes || allocationsRes.status === 401) {
             sessionStorage.removeItem('unity_rewards_token');
+            sessionStorage.removeItem('unity_rewards_refresh_token');
+            sessionStorage.removeItem('unity_rewards_expires_at');
+            sessionStorage.removeItem('unity_rewards_wallet');
             checkAuth();
             throw new Error('Session expired. Please log in again.');
         }
@@ -402,13 +875,20 @@ async function loadData() {
         
         currentData = processed;
         renderDashboard(processed);
-        document.getElementById('last-updated').textContent = `Updated: ${new Date().toLocaleTimeString()}`;
+        const lastUpdated = document.getElementById('last-updated');
+        if (lastUpdated) {
+            lastUpdated.textContent = `Updated: ${new Date().toLocaleTimeString()}`;
+        }
+        loadSummary();
+        loadBalance();
     } catch (err) {
         console.error(err);
         alert('Failed to load data: ' + err.message);
     } finally {
-        refreshBtn.disabled = false;
-        refreshBtn.textContent = 'Refresh Data';
+        if (refreshBtn) {
+            refreshBtn.disabled = false;
+            refreshBtn.textContent = 'Refresh Data';
+        }
     }
 }
 
@@ -526,9 +1006,21 @@ function processAllocations(allocations) {
 
 function renderDashboard(data) {
     // Metrics
-    document.getElementById('metric-total-amount').textContent = data.totals.totalAmount.toFixed(2);
-    document.getElementById('metric-total-count').textContent = data.totals.count;
-    document.getElementById('metric-daily-avg-by-device').textContent = data.averages.dailyByDevice.toFixed(2);
+    const totalAmountEl = document.getElementById('metric-total-amount');
+    const totalCountEl = document.getElementById('metric-total-count');
+    const dailyAvgEl = document.getElementById('metric-daily-avg-by-device');
+    if (totalAmountEl) {
+        totalAmountEl.textContent = data.totals.totalAmount.toFixed(2);
+    }
+    if (totalCountEl) {
+        totalCountEl.textContent = data.totals.count;
+    }
+    if (dailyAvgEl) {
+        dailyAvgEl.textContent = data.averages.dailyByDevice.toFixed(2);
+    }
+    if (summaryDailyAverage) {
+        summaryDailyAverage.textContent = data.averages.dailyByDevice.toFixed(2);
+    }
 
     // Charts
     renderDailyChart(data.averages.perDay);
