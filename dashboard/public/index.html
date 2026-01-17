@@ -54,26 +54,48 @@
         </header>
 
         <!-- Auth Section -->
-        <section id="auth-section" class="card">
-            <h2>Configuration</h2>
-            <form id="token-form">
-                <div class="form-group">
-                    <label for="license-file-input">License aliases JSON (optional)</label>
-                    <input type="file" id="license-file-input" accept="application/json">
-                    <p class="form-hint">Upload an array of entries like { "licenseId": "...", "alias": "..." } or { "licenseId": "...", "deviceName": "..." }. File is only kept in-memory for this session.</p>
-                    <div id="license-file-status" class="text-muted">No file selected; showing license IDs as ...XXXX.</div>
+        <section id="auth-section" class="auth-card">
+            <div class="auth-container">
+                <div class="auth-header">
+                    <h1>Unity Rewards Dashboard</h1>
+                    <p class="auth-subtitle">Secure Web3 Authentication</p>
                 </div>
-                <button type="submit" class="btn">Set Configuration</button>
-                <div class="form-group">
-                    <label>Web3 Login</label>
-                    <div class="web3-actions">
-                        <button type="button" class="btn" id="web3-connect-btn">Connect MetaMask</button>
-                        <button type="button" class="btn" id="web3-login-btn" disabled>Sign &amp; Login</button>
-                        <button type="button" class="btn" id="web3-disconnect-btn" disabled>Disconnect</button>
+
+                <form id="token-form" class="auth-form">
+                    <!-- License Configuration Section -->
+                    <div class="auth-section-box">
+                        <h3 class="section-title">Configuration</h3>
+                        <div class="form-group">
+                            <label for="license-file-input" class="form-label">License Aliases (Optional)</label>
+                            <div class="file-input-wrapper">
+                                <input type="file" id="license-file-input" accept="application/json" class="file-input">
+                                <span class="file-input-label">Choose File</span>
+                            </div>
+                            <p class="form-hint">Upload an array of { "licenseId": "...", "alias": "..." } or { "licenseId": "...", "deviceName": "..." }</p>
+                            <div id="license-file-status" class="text-muted">No file selected; showing license IDs as ...XXXX.</div>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-block">Save Configuration</button>
                     </div>
-                    <div id="web3-status" class="text-muted">Wallet not connected.</div>
+
+                    <!-- Web3 Login Section -->
+                    <div class="auth-section-box">
+                        <h3 class="section-title">Web3 Login</h3>
+                        <div class="web3-info">
+                            <p class="web3-description">Connect your MetaMask wallet to access your rewards data securely.</p>
+                            <div id="web3-status" class="web3-status">Wallet not connected.</div>
+                        </div>
+                        <div class="web3-actions">
+                            <button type="button" class="btn btn-primary" id="web3-connect-btn">Connect MetaMask</button>
+                            <button type="button" class="btn btn-success" id="web3-login-btn" disabled>Sign &amp; Login</button>
+                            <button type="button" class="btn btn-secondary" id="web3-disconnect-btn" disabled>Disconnect</button>
+                        </div>
+                    </div>
+                </form>
+
+                <div class="auth-footer">
+                    <p>By logging in, you agree to our <a href="#" class="footer-link">Terms of Service</a></p>
                 </div>
-            </form>
+            </div>
         </section>
 
         <!-- Dashboard Content (Hidden until auth) -->

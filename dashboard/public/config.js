@@ -9,5 +9,6 @@ window.UNITY_CONFIG = {
   CHAIN_ID: "869",
   DOMAIN: "unitynodes.io",
   URI: "https://unitynodes.io",
-  TERMS_URL: "https://unitynodes.io/terms-and-conditions.html"
+  TERMS_URL: "https://unitynodes.io/terms-and-conditions.html",
+  DEBUG_INFO: false
 };

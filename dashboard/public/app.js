@@ -11,6 +11,7 @@ const CHAIN_ID = UNITY_CONFIG.CHAIN_ID || "";
 const DOMAIN = UNITY_CONFIG.DOMAIN || "unitynodes.io";
 const URI = UNITY_CONFIG.URI || "https://unitynodes.io";
 const TERMS_URL = UNITY_CONFIG.TERMS_URL || "https://unitynodes.io/terms-and-conditions.html";
+const DEBUG_INFO = UNITY_CONFIG.DEBUG_INFO !== undefined ? UNITY_CONFIG.DEBUG_INFO : true;
 
 // State
 let charts = {};
@@ -81,6 +82,12 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeTableSorting();
     initializeWalletMenu();
     updateWeb3Ui();
+    if (!DEBUG_INFO) {
+        const debugElement = document.getElementById('token-debug');
+        if (debugElement) {
+            debugElement.style.display = 'none';
+        }
+    }
     checkAuth();
 });
 
