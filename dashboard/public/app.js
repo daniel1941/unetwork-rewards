@@ -832,31 +832,53 @@ async function loadData() {
             return;
         }
 
-        // Fetch Data
-        const { response: allocationsRes } = await fetchWithAuth(SUPABASE_URL, {
-            method: 'POST',
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({ skip: null, take: null })
-        });
+        // Fetch Data with Pagination
+        const BATCH_SIZE = 1000;
+        let allAllocations = [];
+        let skip = 0;
+        let hasMore = true;
 
-        if (!allocationsRes || allocationsRes.status === 401) {
-            sessionStorage.removeItem('unity_rewards_token');
-            sessionStorage.removeItem('unity_rewards_refresh_token');
-            sessionStorage.removeItem('unity_rewards_expires_at');
-            sessionStorage.removeItem('unity_rewards_wallet');
-            checkAuth();
-            throw new Error('Session expired. Please log in again.');
+        while (hasMore) {
+            const { response: allocationsRes } = await fetchWithAuth(SUPABASE_URL, {
+                method: 'POST',
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ skip: skip, take: BATCH_SIZE })
+            });
+
+            if (!allocationsRes || allocationsRes.status === 401) {
+                sessionStorage.removeItem('unity_rewards_token');
+                sessionStorage.removeItem('unity_rewards_refresh_token');
+                sessionStorage.removeItem('unity_rewards_expires_at');
+                sessionStorage.removeItem('unity_rewards_wallet');
+                checkAuth();
+                throw new Error('Session expired. Please log in again.');
+            }
+
+            if (!allocationsRes.ok) {
+                const err = await allocationsRes.json();
+                throw new Error(err.message || 'Failed to fetch data');
+            }
+
+            const batchData = await allocationsRes.json();
+            
+            if (Array.isArray(batchData)) {
+                allAllocations = allAllocations.concat(batchData);
+                
+                if (batchData.length < BATCH_SIZE) {
+                    hasMore = false;
+                } else {
+                    skip += BATCH_SIZE;
+                }
+            } else {
+                // Unexpected response format
+                hasMore = false;
+            }
         }
 
-        if (!allocationsRes.ok) {
-            const err = await allocationsRes.json();
-            throw new Error(err.message || 'Failed to fetch data');
-        }
-
-        const rawData = await allocationsRes.json();
-        console.log('Raw API Data:', allocationsRes);
+        const rawData = allAllocations;
+        console.log('Raw API Data:', rawData);
         // DEBUG: Analyze raw data dates
         const dates = rawData.map(i => i.completedAt);
         const uniqueDates = [...new Set(dates)];
