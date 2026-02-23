@@ -156,6 +156,28 @@
                 </div>
             </div>
 
+            <!-- Daily Movers -->
+            <div class="card" data-expandable="true">
+                <div class="card-header">
+                    <div class="card-title">
+                        <h3>Daily Movers <span class="tooltip" title="Top 5 biggest gainers and losers in daily rewards between the two most recent dates">ℹ️</span></h3>
+                        <button type="button" class="card-expand-btn" aria-label="Expand card" title="Expand card">
+                            <span aria-hidden="true">⤢</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="movers-panels">
+                    <div class="movers-panel">
+                        <h4 class="movers-panel-title losers-title">Biggest Losers</h4>
+                        <canvas id="losersChart" style="max-height: 250px;"></canvas>
+                    </div>
+                    <div class="movers-panel">
+                        <h4 class="movers-panel-title gainers-title">Biggest Gainers</h4>
+                        <canvas id="gainersChart" style="max-height: 250px;"></canvas>
+                    </div>
+                </div>
+            </div>
+
             <!-- Single Device Chart -->
             <div class="card" data-expandable="true">
                 <div class="card-header">

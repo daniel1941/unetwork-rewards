@@ -1049,6 +1049,7 @@ function renderDashboard(data) {
     renderDeviceChart(data.averages.perDevice);
     renderDistributionChart(data.averages.perDevice);
     renderDailyAvgByDeviceChartFiltered(data.summaries);
+    renderMoversChart(data.summaries);
 
     // Populate Dropdown
     const currentSelection = deviceSelect.value;
@@ -1411,4 +1412,108 @@ function renderTable(summaries) {
     });
 
     updateSortIndicators();
+}
+function computeMovers(summaries) {
+    const dates = [...new Set(summaries.map(s => s.date))].sort((a, b) => b.localeCompare(a));
+    if (dates.length < 2) return { gainers: [], losers: [], latestDate: dates[0], prevDate: null };
+
+    const latestDate = dates[0];
+    const prevDate = dates[1];
+
+    const latestMap = new Map();
+    const prevMap = new Map();
+    summaries.forEach(s => {
+        if (s.date === latestDate) latestMap.set(s.licenseAlias, s.totalAmount);
+        if (s.date === prevDate) prevMap.set(s.licenseAlias, s.totalAmount);
+    });
+
+    const allLicenses = new Set([...latestMap.keys(), ...prevMap.keys()]);
+    const deltas = [];
+    allLicenses.forEach(alias => {
+        const latest = latestMap.get(alias) ?? 0;
+        const prev = prevMap.get(alias) ?? 0;
+        deltas.push({ licenseAlias: alias, delta: latest - prev });
+    });
+
+    const sorted = [...deltas].sort((a, b) => a.delta - b.delta);
+    const losers = sorted.slice(0, 5);
+    const gainers = sorted.slice(-5).reverse();
+
+    return { gainers, losers, latestDate, prevDate };
+}
+
+function renderMoversChart(summaries) {
+    if (charts.losers) { charts.losers.destroy(); charts.losers = null; }
+    if (charts.gainers) { charts.gainers.destroy(); charts.gainers = null; }
+
+    const { gainers, losers, latestDate, prevDate } = computeMovers(summaries);
+    if (!gainers.length && !losers.length) return;
+
+    const lEl = document.getElementById('losersChart');
+    const gEl = document.getElementById('gainersChart');
+    if (!lEl || !gEl) return;
+
+    const changeLabel = prevDate ? `Change (${prevDate} \u2192 ${latestDate})` : `Latest (${latestDate})`;
+
+    const losersDisplay = [...losers].reverse();
+    charts.losers = new Chart(lEl.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: losersDisplay.map(d => d.licenseAlias),
+            datasets: [{
+                label: changeLabel,
+                data: losersDisplay.map(d => d.delta),
+                backgroundColor: 'rgba(239, 83, 80, 0.65)',
+                borderColor: '#ef5350',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => ` ${ctx.raw >= 0 ? '+' : ''}${ctx.raw.toFixed(6)}`
+                    }
+                }
+            },
+            scales: {
+                x: { beginAtZero: false }
+            }
+        }
+    });
+
+    const gainersDisplay = [...gainers].reverse();
+    charts.gainers = new Chart(gEl.getContext('2d'), {
+        type: 'bar',
+        data: {
+            labels: gainersDisplay.map(d => d.licenseAlias),
+            datasets: [{
+                label: changeLabel,
+                data: gainersDisplay.map(d => d.delta),
+                backgroundColor: 'rgba(102, 187, 106, 0.65)',
+                borderColor: '#66bb6a',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => ` ${ctx.raw >= 0 ? '+' : ''}${ctx.raw.toFixed(6)}`
+                    }
+                }
+            },
+            scales: {
+                x: { beginAtZero: false }
+            }
+        }
+    });
 }

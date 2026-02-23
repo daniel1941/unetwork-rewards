@@ -521,6 +521,28 @@ input[type="password"] {
     margin-bottom: 20px;
 }
 
+/* Movers card */
+.movers-panels {
+    display: flex;
+    gap: 24px;
+}
+
+.movers-panel {
+    flex: 1;
+    min-width: 0;
+}
+
+.movers-panel-title {
+    margin: 0 0 10px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.losers-title { color: #ef5350; }
+.gainers-title { color: #66bb6a; }
+
 .charts-grid .card {
     width: 100%;
 }
