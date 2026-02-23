@@ -36,7 +36,6 @@ export const supabaseClient = {
             }
 
             const data = await response.json();
-            console.log('Supabase Data:', JSON.stringify(data, null, 2));
             return data;
         } catch (error) {
             console.error("Supabase Fetch Error:", error);

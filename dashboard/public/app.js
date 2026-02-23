@@ -1401,13 +1401,17 @@ function renderTable(summaries) {
 
     sortedSummaries.forEach(row => {
         const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td>${row.date}</td>
-            <td>${row.licenseAlias}</td>
-            <td>${row.count}</td>
-            <td>${row.totalAmount.toFixed(6)}</td>
-            <td>${row.averageAmount.toFixed(6)}</td>
-        `;
+        [
+            row.date,
+            row.licenseAlias,
+            String(row.count),
+            row.totalAmount.toFixed(6),
+            row.averageAmount.toFixed(6)
+        ].forEach(value => {
+            const td = document.createElement('td');
+            td.textContent = value;
+            tr.appendChild(td);
+        });
         tbody.appendChild(tr);
     });
 
