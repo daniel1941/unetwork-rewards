@@ -1,3 +1,5 @@
+import { filterDataByDateRange } from './dateFilterUtils.js';
+
 // Configuration
 const UNITY_CONFIG = window.UNITY_CONFIG || {};
 const AUTH_BASE_URL = UNITY_CONFIG.BASE_URL || "https://api.unityedge.io";
@@ -26,6 +28,7 @@ let web3Account = '';
 let web3Signature = '';
 let web3Busy = false;
 let refreshIntervalId = null;
+let currentDateFilter = 'all';
 
 const tableComparators = {
     date: (a, b) => a.date.localeCompare(b.date),
@@ -75,6 +78,7 @@ const tableDeviceFilter = document.getElementById('table-device-filter');
 const cardOverlay = document.getElementById('card-overlay');
 const cardOverlayBody = document.getElementById('card-overlay-body');
 const cardOverlayClose = document.getElementById('card-overlay-close');
+const dateFilterSelect = document.getElementById('date-filter');
 
 // Init
 document.addEventListener('DOMContentLoaded', () => {
@@ -94,22 +98,31 @@ document.addEventListener('DOMContentLoaded', () => {
 // Event Listeners
 deviceSelect.addEventListener('change', () => {
     if (currentData) {
-        renderSingleDeviceChart(deviceSelect.value, currentData.summaries);
+        renderSingleDeviceChart(deviceSelect.value, getFilteredData().summaries);
     }
 });
 
 dailyAvgGroupFilterSelect.addEventListener('change', () => {
     dailyAvgGroupFilter = dailyAvgGroupFilterSelect.value;
     if (currentData) {
-        renderDailyAvgByDeviceChartFiltered(currentData.summaries);
+        renderDailyAvgByDeviceChartFiltered(getFilteredData().summaries);
     }
 });
 
 tableDeviceFilter.addEventListener('change', () => {
     if (currentData) {
-        renderTable(currentData.summaries);
+        renderTable(getFilteredData().summaries);
     }
 });
+
+if (dateFilterSelect) {
+    dateFilterSelect.addEventListener('change', () => {
+        currentDateFilter = dateFilterSelect.value;
+        if (currentData) {
+            renderDashboard(getFilteredData());
+        }
+    });
+}
 
 if (licenseFileInput) {
     licenseFileInput.addEventListener('change', () => {
@@ -174,6 +187,11 @@ function updateLicenseFileStatus(message) {
     if (licenseFileStatus) {
         licenseFileStatus.textContent = message;
     }
+}
+
+function getFilteredData() {
+    if (!currentData) return null;
+    return filterDataByDateRange(currentData, currentDateFilter);
 }
 
 function startAutoRefresh() {
@@ -896,7 +914,7 @@ async function loadData() {
         const processed = processAllocations(rawData);
         
         currentData = processed;
-        renderDashboard(processed);
+        renderDashboard(getFilteredData());
         const lastUpdated = document.getElementById('last-updated');
         if (lastUpdated) {
             lastUpdated.textContent = `Updated: ${new Date().toLocaleTimeString()}`;

@@ -605,6 +605,20 @@ th {
     color: var(--accent-color);
 }
 
+.dashboard-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 20px;
+}
+
+.control-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--muted-text);
+    white-space: nowrap;
+}
+
 .tooltip {
     cursor: help;
     font-size: 0.8em;
