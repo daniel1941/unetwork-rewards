@@ -1,4 +1,4 @@
-import { getDateFilterRange, filterDataByDateRange } from './dateFilterUtils.js';
+import { filterDataByDateRange } from './dateFilterUtils.js';
 
 // Configuration
 const UNITY_CONFIG = window.UNITY_CONFIG || {};

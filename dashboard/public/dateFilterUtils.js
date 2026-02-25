@@ -40,7 +40,20 @@ export function getDateFilterRange(filter) {
     }
 
     if (filter === 'last_3_months') {
-        const threeMonthsAgo = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 3, now.getUTCDate()));
+        const year = todayUTC.getUTCFullYear();
+        const month = todayUTC.getUTCMonth();
+        const day = todayUTC.getUTCDate();
+
+        // Compute the target year/month three months ago, anchored to the first of that month
+        const targetMonthDate = new Date(Date.UTC(year, month - 3, 1));
+        const targetYear = targetMonthDate.getUTCFullYear();
+        const targetMonth = targetMonthDate.getUTCMonth();
+
+        // Clamp the day to the last valid day of the target month to avoid overflow
+        const daysInTargetMonth = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+        const clampedDay = Math.min(day, daysInTargetMonth);
+
+        const threeMonthsAgo = new Date(Date.UTC(targetYear, targetMonth, clampedDay));
         return { start: threeMonthsAgo.toISOString().split('T')[0], end: todayUTC.toISOString().split('T')[0] };
     }
 

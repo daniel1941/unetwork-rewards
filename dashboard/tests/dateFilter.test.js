@@ -11,19 +11,6 @@ function utcDate(str) {
     return new Date(Date.UTC(y, m - 1, d));
 }
 
-/** Format a UTC Date (or timestamp) as YYYY-MM-DD. */
-function toDateStr(date) {
-    return new Date(date).toISOString().split('T')[0];
-}
-
-/** Return the ISO-week Monday (UTC) for the given UTC Date. */
-function isoWeekMonday(date) {
-    const d = new Date(date);
-    const day = d.getUTCDay(); // 0 = Sun … 6 = Sat
-    d.setUTCDate(d.getUTCDate() - ((day + 6) % 7));
-    return d;
-}
-
 // ---------------------------------------------------------------------------
 // Minimal sample data used by filterDataByDateRange tests
 // ---------------------------------------------------------------------------
@@ -246,6 +233,35 @@ describe('getDateFilterRange', () => {
             const range = getDateFilterRange('last_3_months');
             expect(range.start).toBe('2025-11-01');
             expect(range.end).toBe('2026-02-01');
+        });
+
+        it('clamps day when today is May 31 (target month Feb has only 28/29 days)', () => {
+            // May 31 − 3 months = Feb 31 → must clamp to Feb 28 (non-leap year 2025)
+            vi.setSystemTime(new Date('2025-05-31T12:00:00.000Z'));
+            const range = getDateFilterRange('last_3_months');
+            expect(range.start).toBe('2025-02-28');
+            expect(range.end).toBe('2025-05-31');
+        });
+
+        it('clamps day when today is March 31 (target month Dec has 31 days, no clamp needed)', () => {
+            vi.setSystemTime(new Date('2026-03-31T12:00:00.000Z'));
+            const range = getDateFilterRange('last_3_months');
+            expect(range.start).toBe('2025-12-31');
+            expect(range.end).toBe('2026-03-31');
+        });
+
+        it('clamps day when today is Aug 31 (target month May has 31 days, no clamp needed)', () => {
+            vi.setSystemTime(new Date('2025-08-31T12:00:00.000Z'));
+            const range = getDateFilterRange('last_3_months');
+            expect(range.start).toBe('2025-05-31');
+            expect(range.end).toBe('2025-08-31');
+        });
+
+        it('clamps day when today is July 31 (target month April has only 30 days)', () => {
+            vi.setSystemTime(new Date('2025-07-31T12:00:00.000Z'));
+            const range = getDateFilterRange('last_3_months');
+            expect(range.start).toBe('2025-04-30');
+            expect(range.end).toBe('2025-07-31');
         });
     });
 });
