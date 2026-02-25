@@ -28,7 +28,7 @@ let web3Account = '';
 let web3Signature = '';
 let web3Busy = false;
 let refreshIntervalId = null;
-let currentDateFilter = 'all';
+let currentDateFilter = 'current_month';
 
 const tableComparators = {
     date: (a, b) => a.date.localeCompare(b.date),
