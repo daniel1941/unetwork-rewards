@@ -62,6 +62,7 @@ body.wallet-disconnected header.header {
 }
 
 body.wallet-disconnected .summary-strip,
+body.wallet-disconnected .dashboard-controls,
 body.wallet-disconnected #auth-status {
     display: none;
 }
@@ -609,7 +610,6 @@ th {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 20px;
 }
 
 .control-label {
