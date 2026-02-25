@@ -610,13 +610,32 @@ th {
     display: flex;
     align-items: center;
     gap: 8px;
+    background: #fff;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 8px 10px;
+    box-shadow: var(--surface-shadow);
 }
 
 .control-label {
-    font-size: 0.875rem;
+    font-size: 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
     font-weight: 600;
     color: var(--muted-text);
     white-space: nowrap;
+}
+
+.dashboard-controls .card-control {
+    border: none;
+    background: transparent;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-color);
+    padding: 0;
+    outline: none;
+    cursor: pointer;
+    min-width: 0;
 }
 
 .tooltip {
