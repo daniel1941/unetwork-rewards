@@ -3,7 +3,6 @@
     --card-bg: #ffffff;
     --text-color: #101828;
     --accent-color: #111827;
-    flex-wrap: nowrap;
     --muted-text: #667085;
     --surface-shadow: 0 12px 32px rgba(16, 24, 40, 0.08);
 }
@@ -25,9 +24,10 @@ header.header {
     display: flex;
     justify-content: flex-start;
     align-items: center;
-    gap: 16px;
+    gap: 8px;
     margin-bottom: 20px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    overflow-x: auto;
 }
 
 header.header h1 {
@@ -224,16 +224,16 @@ body.wallet-disconnected #auth-status {
 }
 
 .summary-strip {
-    margin-top: 0;
-    display: grid;
-    gap: 10px;
-    margin-left: auto;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+    align-items: center;
+    flex: 1;
+    justify-content: flex-end;
 }
 
 .summary-row {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(110px, 1fr));
-    gap: 10px;
+    display: contents;
 }
 
 .summary-item {
