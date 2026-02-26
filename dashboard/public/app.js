@@ -639,7 +639,7 @@ function checkAuth() {
             walletMenuPanel.setAttribute('aria-hidden', 'true');
         }
         if (summaryTotal) {
-            summaryTotal.closest('.summary-strip').style.display = 'grid';
+            summaryTotal.closest('.summary-strip').style.display = 'flex';
         }
         if (debugAccessToken) {
             const access = authState.accessToken;
