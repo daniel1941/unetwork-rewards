@@ -232,10 +232,6 @@ body.wallet-disconnected #auth-status {
     justify-content: flex-end;
 }
 
-.summary-row {
-    display: contents;
-}
-
 .summary-item {
     background: #fff;
     border: 1px solid var(--border-color);
