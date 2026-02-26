@@ -200,6 +200,7 @@ body.wallet-disconnected #auth-status {
     position: relative;
     display: inline-flex;
     align-items: center;
+    margin-left: auto;
 }
 
 .wallet-menu-panel {
@@ -228,8 +229,10 @@ body.wallet-disconnected #auth-status {
     flex-wrap: nowrap;
     gap: 8px;
     align-items: center;
-    flex: 1;
-    justify-content: flex-end;
+}
+
+.summary-row {
+    display: contents;
 }
 
 .summary-item {
