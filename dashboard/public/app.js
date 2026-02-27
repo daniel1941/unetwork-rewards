@@ -49,7 +49,6 @@ const tableDefaultDirections = {
 // DOM Elements
 const authStatus = document.getElementById('auth-status');
 const walletMenu = document.getElementById('wallet-menu');
-const walletMenuPanel = document.getElementById('wallet-menu-panel');
 const summaryTotal = document.getElementById('summary-total');
 const summaryDailyAverage = document.getElementById('summary-daily-average');
 const summaryLast7 = document.getElementById('summary-last7');
@@ -84,7 +83,6 @@ const dateFilterSelect = document.getElementById('date-filter');
 document.addEventListener('DOMContentLoaded', () => {
     initializeCardExpansion();
     initializeTableSorting();
-    initializeWalletMenu();
     updateWeb3Ui();
     if (!DEBUG_INFO) {
         const debugElement = document.getElementById('token-debug');
@@ -305,22 +303,7 @@ async function fetchWithAuth(url, options = {}, retryCount = 0) {
     return { response, authState };
 }
 
-function initializeWalletMenu() {
-    if (!authStatus || !walletMenuPanel || !walletMenu) return;
 
-    authStatus.addEventListener('click', (event) => {
-        event.stopPropagation();
-        const isOpen = walletMenuPanel.classList.toggle('is-open');
-        walletMenuPanel.setAttribute('aria-hidden', String(!isOpen));
-    });
-
-    document.addEventListener('click', (event) => {
-        if (!walletMenu.contains(event.target)) {
-            walletMenuPanel.classList.remove('is-open');
-            walletMenuPanel.setAttribute('aria-hidden', 'true');
-        }
-    });
-}
 
 function formatMicros(value) {
     if (value === null || value === undefined) return '-';
@@ -634,10 +617,6 @@ function checkAuth() {
         if (walletMenu) {
             walletMenu.style.display = 'inline-flex';
         }
-        if (walletMenuPanel) {
-            walletMenuPanel.classList.remove('is-open');
-            walletMenuPanel.setAttribute('aria-hidden', 'true');
-        }
         if (summaryTotal) {
             summaryTotal.closest('.summary-strip').style.display = 'flex';
         }
@@ -671,10 +650,6 @@ function checkAuth() {
         authStatus.style.display = 'none';
         if (walletMenu) {
             walletMenu.style.display = 'none';
-        }
-        if (walletMenuPanel) {
-            walletMenuPanel.classList.remove('is-open');
-            walletMenuPanel.setAttribute('aria-hidden', 'true');
         }
         if (summaryTotal) {
             summaryTotal.closest('.summary-strip').style.display = 'none';
