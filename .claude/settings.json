@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"d:\\\\source\\\\unity-rewards\\\\unity-rewards\" -Force)"
+    ]
+  }
+}
