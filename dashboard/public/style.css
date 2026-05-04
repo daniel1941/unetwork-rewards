@@ -369,11 +369,13 @@ table {
     table-layout: fixed;
 }
 
-col.col-date    { width: 18%; }
-col.col-license { width: 32%; }
-col.col-count   { width: 10%; }
-col.col-total   { width: 20%; }
-col.col-avg     { width: 20%; }
+col.col-date       { width: 12%; }
+col.col-license-id { width: 7%;  }
+col.col-license    { width: 33%; }
+col.col-uptime     { width: 8%;  }
+col.col-count      { width: 8%;  }
+col.col-total      { width: 16%; }
+col.col-avg        { width: 16%; }
 
 thead {
     position: sticky;
@@ -411,7 +413,9 @@ td:last-child { border-right: none; }
 
 td:nth-child(3),
 td:nth-child(4),
-td:nth-child(5) {
+td:nth-child(5),
+td:nth-child(6),
+td:nth-child(7) {
     text-align: right;
     color: var(--amber);
 }
@@ -898,6 +902,31 @@ body.light .status-badge.missing {
 
 .filter-dropdown-panel.open {
     display: block;
+}
+
+.filter-dropdown-search {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: var(--panel);
+    z-index: 1;
+}
+
+.filter-dropdown-search-input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-primary);
+    font-size: 11px;
+    font-family: inherit;
+    padding: 4px 6px;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.filter-dropdown-search-input:focus {
+    border-color: var(--amber);
 }
 
 .filter-dropdown-item {

@@ -1,4 +1,4 @@
-import { filterDataByDateRange } from './dateFilterUtils.js';
+﻿import { filterDataByDateRange } from './dateFilterUtils.js';
 
 // Configuration
 const UNITY_CONFIG = window.UNITY_CONFIG || {};
@@ -24,6 +24,8 @@ let expandedCardContext = null;
 let tableSortState = { key: 'date', direction: 'desc' };
 let licenseAliasMap = new Map();
 let licenseGroupMap = new Map();
+let licenseUptimeMap = new Map(); // Map<licenseId, uptime 0–1> from LICENSES_URL
+let licenseSearchQuery = '';
 let licenseAnalyticsMap = new Map(); // Map<licenseId, Map<date, uptime 0–1>>
 let availableGroups = [];
 let selectedGroups = new Set();
@@ -37,7 +39,9 @@ let rawAllocations = null;
 
 const tableComparators = {
     date: (a, b) => a.date.localeCompare(b.date),
+    licenseId: (a, b) => (a.licenseId ?? '').localeCompare(b.licenseId ?? ''),
     license: (a, b) => resolveLicenseAlias(a.licenseId).localeCompare(resolveLicenseAlias(b.licenseId)),
+    uptime: (a, b) => (licenseUptimeMap.get(a.licenseId) ?? -1) - (licenseUptimeMap.get(b.licenseId) ?? -1),
     count: (a, b) => a.count - b.count,
     totalAmount: (a, b) => a.totalAmount - b.totalAmount,
     averageAmount: (a, b) => a.averageAmount - b.averageAmount
@@ -304,6 +308,21 @@ function getFilteredLicenses() {
     return getAvailableLicenses();
 }
 
+function getFilteredLicenseEntries() {
+    if (licenseAliasMap.size > 0) {
+        let entries = [...licenseAliasMap.entries()];
+        if (selectedGroups.size > 0 && licenseGroupMap.size > 0) {
+            entries = entries.filter(([id]) => selectedGroups.has(licenseGroupMap.get(id)));
+        }
+        const seen = new Map();
+        for (const [id, alias] of entries) {
+            if (!seen.has(alias)) seen.set(alias, { shortId: id.slice(-4), hasAlias: alias !== id });
+        }
+        return [...seen.entries()].map(([alias, { shortId, hasAlias }]) => ({ alias, shortId, hasAlias })).sort((a, b) => a.alias.localeCompare(b.alias));
+    }
+    return getAvailableLicenses().map(alias => ({ alias, shortId: null, hasAlias: true }));
+}
+
 function startAutoRefresh() {
     if (refreshIntervalId) return;
     refreshIntervalId = setInterval(() => {
@@ -528,9 +547,11 @@ async function loadLicenses() {
         if (licenses.length === 0) return;
 
         licenseAliasMap = new Map();
+        licenseUptimeMap = new Map();
         for (const lic of licenses) {
             if (!lic.id) continue;
             licenseAliasMap.set(lic.id, (lic.alias || lic.deviceName || lic.id).trim());
+            if (lic.uptime != null) licenseUptimeMap.set(lic.id, lic.uptime);
         }
 
         buildGroupDropdown();
@@ -724,6 +745,7 @@ function applyLicenseData(parsed) {
 async function loadLicenseAliasesFromInput() {
     if (!licenseFileInput || !licenseFileInput.files || licenseFileInput.files.length === 0) {
         licenseAliasMap = new Map();
+        licenseUptimeMap = new Map();
         licenseGroupMap = new Map();
         availableGroups = [];
         selectedGroups.clear();
@@ -853,32 +875,56 @@ function buildLicensesDropdown() {
     if (!panel || !trigger) return;
 
     panel.innerHTML = '';
-    const licenses = getFilteredLicenses();
-    trigger.disabled = licenses.length === 0;
 
-    licenses.forEach(lic => {
+    const searchWrap = document.createElement('div');
+    searchWrap.className = 'filter-dropdown-search';
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Search...';
+    searchInput.value = licenseSearchQuery;
+    searchInput.className = 'filter-dropdown-search-input';
+    searchInput.addEventListener('click', e => e.stopPropagation());
+    searchInput.addEventListener('input', e => {
+        licenseSearchQuery = e.target.value;
+        applyLicenseSearch(panel);
+    });
+    searchWrap.appendChild(searchInput);
+    panel.appendChild(searchWrap);
+
+    const licenseEntries = getFilteredLicenseEntries();
+    trigger.disabled = licenseEntries.length === 0;
+
+    licenseEntries.forEach(({ alias, shortId, hasAlias }) => {
         const item = document.createElement('label');
         item.className = 'filter-dropdown-item';
         const cb = document.createElement('input');
         cb.type = 'checkbox';
-        cb.value = lic;
-        cb.checked = selectedLicenses.has(lic);
+        cb.value = alias;
+        cb.checked = selectedLicenses.has(alias);
         cb.addEventListener('change', () => {
-            if (cb.checked) selectedLicenses.add(lic);
-            else selectedLicenses.delete(lic);
+            if (cb.checked) selectedLicenses.add(alias);
+            else selectedLicenses.delete(alias);
             updateFilterCount('licenses-count', selectedLicenses.size);
             refreshLicensesDisabledState();
             rerenderCharts();
         });
         item.appendChild(cb);
-        item.appendChild(document.createTextNode(' ' + lic));
+        const label = hasAlias ? alias + (shortId ? ' (' + shortId + ')' : '') : shortId ?? alias;
+        item.appendChild(document.createTextNode(' ' + label));
         panel.appendChild(item);
     });
 
+    applyLicenseSearch(panel);
     updateFilterCount('licenses-count', selectedLicenses.size);
     refreshLicensesDisabledState();
 }
 
+function applyLicenseSearch(panel) {
+    const q = licenseSearchQuery.toLowerCase();
+    panel.querySelectorAll('.filter-dropdown-item').forEach(item => {
+        item.style.display = !q || item.textContent.toLowerCase().includes(q) ? '' : 'none';
+    });
+}
 function initFilterDropdowns() {
     document.querySelectorAll('.filter-dropdown').forEach(dropdown => {
         const trigger = dropdown.querySelector('.filter-dropdown-btn');
@@ -890,6 +936,10 @@ function initFilterDropdowns() {
                 if (p !== panel) p.classList.remove('open');
             });
             panel.classList.toggle('open');
+            if (panel.classList.contains('open')) {
+                const si = panel.querySelector('.filter-dropdown-search-input');
+                if (si) setTimeout(() => si.focus(), 0);
+            }
         });
     });
 
@@ -979,6 +1029,7 @@ function logout() {
         currentData = null;
         rawAllocations = null;
         licenseAliasMap = new Map();
+        licenseUptimeMap = new Map();
         licenseGroupMap = new Map();
         availableGroups = [];
         selectedGroups.clear();
@@ -1572,9 +1623,12 @@ function renderTable(summaries) {
 
     sorted.forEach(row => {
         const tr = document.createElement('tr');
+        const uptime = licenseUptimeMap.get(row.licenseId);
         tr.innerHTML = `
             <td>${row.date}</td>
+            <td>${row.licenseId ? row.licenseId.slice(-4) : ''}</td>
             <td>${resolveLicenseAlias(row.licenseId)}</td>
+            <td>${uptime != null ? (uptime * 100).toFixed(1) + '%' : '—'}</td>
             <td>${row.count}</td>
             <td>${row.totalAmount.toFixed(6)}</td>
             <td>${row.averageAmount.toFixed(6)}</td>
