@@ -7,6 +7,8 @@ const REFRESH_INTERVAL_MS = UNITY_CONFIG.REFRESH_INTERVAL_MS || 300000;
 const SUPABASE_URL = UNITY_CONFIG.SUPABASE_URL || "https://vtllpagtmncbkywsqccd.supabase.co/rest/v1/rpc/rewards_get_allocations";
 const SUMMARY_URL = UNITY_CONFIG.SUMMARY_URL || "https://vtllpagtmncbkywsqccd.supabase.co/rest/v1/rpc/rewards_get_allocations_summary?limit=1";
 const BALANCE_URL = UNITY_CONFIG.BALANCE_URL || "https://vtllpagtmncbkywsqccd.supabase.co/rest/v1/rpc/rewards_get_balance";
+const LICENSES_URL = UNITY_CONFIG.LICENSES_URL || "https://api.unityedge.io/functions/v1/licenses_get_licenses";
+const LICENSE_ANALYTICS_URL = UNITY_CONFIG.LICENSE_ANALYTICS_URL || "https://api.unityedge.io/rest/v1/rpc/license_analytics_get_by_license";
 const API_KEY = UNITY_CONFIG.API_KEY || "";
 const TOKEN_URL = UNITY_CONFIG.TOKEN_URL || "https://api.unityedge.io/auth/v1/token?grant_type=web3";
 const CHAIN_ID = UNITY_CONFIG.CHAIN_ID || "";
@@ -21,18 +23,21 @@ let currentData = null;
 let expandedCardContext = null;
 let tableSortState = { key: 'date', direction: 'desc' };
 let licenseAliasMap = new Map();
-let licenseGroupMap = new Map(); // Map of licenseId to group
-let availableGroups = []; // Array of unique groups from license file
-let dailyAvgGroupFilter = 'all'; // Track selected group filter
+let licenseGroupMap = new Map();
+let licenseAnalyticsMap = new Map(); // Map<licenseId, Map<date, uptime 0–1>>
+let availableGroups = [];
+let selectedGroups = new Set();
+let selectedLicenses = new Set();
 let web3Account = '';
 let web3Signature = '';
 let web3Busy = false;
 let refreshIntervalId = null;
 let currentDateFilter = 'current_month';
+let rawAllocations = null;
 
 const tableComparators = {
     date: (a, b) => a.date.localeCompare(b.date),
-    license: (a, b) => a.licenseAlias.localeCompare(b.licenseAlias),
+    license: (a, b) => resolveLicenseAlias(a.licenseId).localeCompare(resolveLicenseAlias(b.licenseId)),
     count: (a, b) => a.count - b.count,
     totalAmount: (a, b) => a.totalAmount - b.totalAmount,
     averageAmount: (a, b) => a.averageAmount - b.averageAmount
@@ -45,6 +50,60 @@ const tableDefaultDirections = {
     totalAmount: 'desc',
     averageAmount: 'desc'
 };
+
+function isLight() {
+    return document.body.classList.contains('light');
+}
+
+function themeColor(dark, light) {
+    return isLight() ? light : dark;
+}
+
+function getSeriesColor(index) {
+    const dark  = ['#ff8c00','#00aaff','#cc44ff','#00cc44','#ff4444','#ffcc00','#4488ff','#ff6688'];
+    const light = ['#cc6600','#0077aa','#9922bb','#007722','#aa1122','#aa8800','#2244aa','#aa2255'];
+    const palette = isLight() ? light : dark;
+    return palette[index % palette.length];
+}
+
+function bbgScales(opts = {}) {
+    const base = {
+        grid:   { color: themeColor('#1a1a1a', '#e0d8cc') },
+        ticks:  { color: themeColor('#555555', '#88806e'), maxTicksLimit: 5 },
+        border: { color: themeColor('#1e1e1e', '#d4cec0') }
+    };
+    return {
+        x: { ...base, ...(opts.x || {}) },
+        y: { ...base, beginAtZero: true, ...(opts.y || {}) }
+    };
+}
+
+function applyChartTheme() {
+    const light = isLight();
+    Chart.defaults.color = light ? '#88806e' : '#555555';
+    Chart.defaults.borderColor = light ? '#d4cec0' : '#1e1e1e';
+    Chart.defaults.plugins.tooltip.backgroundColor = light ? '#f8f4ea' : '#111111';
+    Chart.defaults.plugins.tooltip.titleColor      = light ? '#cc6600' : '#ff8c00';
+    Chart.defaults.plugins.tooltip.bodyColor       = light ? '#1a1610' : '#d9d2c1';
+    Chart.defaults.plugins.tooltip.borderColor     = light ? '#d4cec0' : '#1e1e1e';
+}
+
+function legendLabels() {
+    return {
+        color: themeColor('#555555', '#88806e'),
+        font: { family: "'IBM Plex Mono', monospace", size: 11 },
+        boxWidth: 8,
+        boxHeight: 8,
+        padding: 8
+    };
+}
+
+function toggleTheme() {
+    document.body.classList.toggle('light');
+    localStorage.setItem('unity_theme', isLight() ? 'light' : 'dark');
+    applyChartTheme();
+    if (currentData) renderDashboard(getFilteredData());
+}
 
 // DOM Elements
 const authStatus = document.getElementById('auth-status');
@@ -71,9 +130,6 @@ const licenseFileInput = document.getElementById('license-file-input');
 const licenseFileStatus = document.getElementById('license-file-status');
 const refreshBtn = document.getElementById('refresh-btn');
 const logoutBtn = document.getElementById('logout-btn');
-const deviceSelect = document.getElementById('device-select');
-const dailyAvgGroupFilterSelect = document.getElementById('dailyAvgGroupFilter');
-const tableDeviceFilter = document.getElementById('table-device-filter');
 const cardOverlay = document.getElementById('card-overlay');
 const cardOverlayBody = document.getElementById('card-overlay-body');
 const cardOverlayClose = document.getElementById('card-overlay-close');
@@ -81,6 +137,31 @@ const dateFilterSelect = document.getElementById('date-filter');
 
 // Init
 document.addEventListener('DOMContentLoaded', () => {
+    if (localStorage.getItem('unity_theme') === 'light') {
+        document.body.classList.add('light');
+    }
+
+    Chart.defaults.font.family = "'IBM Plex Mono', 'Courier New', monospace";
+    Chart.defaults.font.size = 12;
+    Chart.defaults.plugins.legend.display = false;
+    Chart.defaults.plugins.tooltip.borderWidth = 1;
+    Chart.defaults.animation = false;
+    Chart.defaults.interaction.mode = 'index';
+    Chart.defaults.interaction.intersect = false;
+    applyChartTheme();
+
+    document.querySelectorAll('.theme-toggle-btn').forEach(btn => btn.addEventListener('click', toggleTheme));
+
+    document.querySelectorAll('.date-filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            currentDateFilter = btn.dataset.filter;
+            document.querySelectorAll('.date-filter-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            if (currentData) renderDashboard(getFilteredData());
+        });
+    });
+
+    initFilterDropdowns();
     initializeCardExpansion();
     initializeTableSorting();
     updateWeb3Ui();
@@ -90,29 +171,24 @@ document.addEventListener('DOMContentLoaded', () => {
             debugElement.style.display = 'none';
         }
     }
+
+    const savedLicenseData = localStorage.getItem('unity_license_data');
+    if (savedLicenseData) {
+        try {
+            const parsed = JSON.parse(savedLicenseData);
+            if (Array.isArray(parsed)) {
+                const { groupCount } = applyLicenseData(parsed);
+                updateLicenseFileStatus(`Restored ${groupCount} group mappings from saved configuration.`);
+            }
+        } catch (e) {
+            localStorage.removeItem('unity_license_data');
+        }
+    }
+
     checkAuth();
 });
 
 // Event Listeners
-deviceSelect.addEventListener('change', () => {
-    if (currentData) {
-        renderSingleDeviceChart(deviceSelect.value, getFilteredData().summaries);
-    }
-});
-
-dailyAvgGroupFilterSelect.addEventListener('change', () => {
-    dailyAvgGroupFilter = dailyAvgGroupFilterSelect.value;
-    if (currentData) {
-        renderDailyAvgByDeviceChartFiltered(getFilteredData().summaries);
-    }
-});
-
-tableDeviceFilter.addEventListener('change', () => {
-    if (currentData) {
-        renderTable(getFilteredData().summaries);
-    }
-});
-
 if (dateFilterSelect) {
     dateFilterSelect.addEventListener('change', () => {
         currentDateFilter = dateFilterSelect.value;
@@ -129,7 +205,7 @@ if (licenseFileInput) {
             return;
         }
         const file = licenseFileInput.files[0];
-        updateLicenseFileStatus(`Selected ${file.name}. File will be loaded when you set the token.`);
+        updateLicenseFileStatus(`Selected ${file.name}. File will be loaded when you save the configuration.`);
     });
 }
 
@@ -166,7 +242,6 @@ tokenForm.addEventListener('submit', async (e) => {
         return;
     }
 
-    // Save to Session Storage (cleared when tab closes)
     sessionStorage.setItem('unity_rewards_token', token);
     sessionStorage.removeItem('unity_rewards_refresh_token');
     sessionStorage.removeItem('unity_rewards_expires_at');
@@ -190,6 +265,43 @@ function updateLicenseFileStatus(message) {
 function getFilteredData() {
     if (!currentData) return null;
     return filterDataByDateRange(currentData, currentDateFilter);
+}
+
+function getGlobalFilteredSummaries() {
+    const filtered = getFilteredData();
+    if (!filtered) return [];
+    let summaries = filtered.summaries;
+
+    if (selectedGroups.size > 0) {
+        summaries = summaries.filter(s => selectedGroups.has(licenseGroupMap.get(s.licenseId)));
+    }
+    if (selectedLicenses.size > 0) {
+        summaries = summaries.filter(s => selectedLicenses.has(resolveLicenseAlias(s.licenseId)));
+    }
+    return summaries;
+}
+
+function getAvailableLicenses() {
+    const filtered = getFilteredData();
+    if (!filtered) return [];
+    let summaries = filtered.summaries;
+
+    if (selectedGroups.size > 0) {
+        summaries = summaries.filter(s => selectedGroups.has(licenseGroupMap.get(s.licenseId)));
+    }
+
+    return [...new Set(summaries.map(s => resolveLicenseAlias(s.licenseId)))].sort();
+}
+
+function getFilteredLicenses() {
+    if (licenseAliasMap.size > 0) {
+        let entries = [...licenseAliasMap.entries()];
+        if (selectedGroups.size > 0 && licenseGroupMap.size > 0) {
+            entries = entries.filter(([id]) => selectedGroups.has(licenseGroupMap.get(id)));
+        }
+        return [...new Set(entries.map(([, alias]) => alias))].sort();
+    }
+    return getAvailableLicenses();
 }
 
 function startAutoRefresh() {
@@ -303,8 +415,6 @@ async function fetchWithAuth(url, options = {}, retryCount = 0) {
     return { response, authState };
 }
 
-
-
 function formatMicros(value) {
     if (value === null || value === undefined) return '-';
     const numeric = Number(value);
@@ -386,6 +496,87 @@ async function loadBalance() {
         console.error(err);
         summaryRedeemable.textContent = '-';
     }
+}
+
+async function loadLicenses() {
+    try {
+        const pageSize = 20;
+        let page = 1;
+        const allLicenses = [];
+
+        while (true) {
+            const { response } = await fetchWithAuth(LICENSES_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    role: 'uno',
+                    page,
+                    pageSize,
+                    skip: (page - 1) * pageSize,
+                    take: pageSize
+                })
+            });
+            if (!response || !response.ok) break;
+            const batch = await response.json().catch(() => []);
+            if (!Array.isArray(batch) || batch.length === 0) break;
+            allLicenses.push(...batch);
+            if (batch.length < pageSize) break;
+            page++;
+        }
+
+        const licenses = allLicenses;
+        if (licenses.length === 0) return;
+
+        licenseAliasMap = new Map();
+        for (const lic of licenses) {
+            if (!lic.id) continue;
+            licenseAliasMap.set(lic.id, (lic.alias || lic.deviceName || lic.id).trim());
+        }
+
+        buildGroupDropdown();
+        buildLicensesDropdown();
+
+        if (rawAllocations) {
+            currentData = processAllocations(rawAllocations);
+            renderDashboard(getFilteredData());
+        } else if (currentData) {
+            rerenderCharts();
+        }
+
+        loadLicenseAnalytics(); // fetches per-day uptime for all licenses, re-renders when done
+    } catch (err) {
+        console.error('Failed to load licenses:', err);
+    }
+}
+
+async function loadLicenseAnalytics() {
+    const licenseIds = [...licenseAliasMap.keys()];
+    if (licenseIds.length === 0) return;
+
+    licenseAnalyticsMap = new Map();
+    const BATCH = 20;
+
+    for (let i = 0; i < licenseIds.length; i += BATCH) {
+        await Promise.all(licenseIds.slice(i, i + BATCH).map(async licenseId => {
+            try {
+                const { response } = await fetchWithAuth(LICENSE_ANALYTICS_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ licenseId, startDate: '2025-01-01', endDate: '2030-01-01' })
+                });
+                if (!response || !response.ok) return;
+                const data = await response.json();
+                if (!Array.isArray(data)) return;
+                const dayMap = new Map();
+                data.forEach(({ date, uptime }) => { if (date && uptime != null) dayMap.set(date, uptime); });
+                licenseAnalyticsMap.set(licenseId, dayMap);
+            } catch (e) {
+                console.warn('Analytics fetch failed for', licenseId, e);
+            }
+        }));
+    }
+
+    if (currentData) renderDashboard(getFilteredData());
 }
 
 function updateWeb3Ui(message) {
@@ -509,13 +700,38 @@ async function loginWithWallet() {
     }
 }
 
+function applyLicenseData(parsed) {
+    const groupMap = new Map();
+    const groupsSet = new Set();
+
+    parsed.forEach((entry) => {
+        if (!entry || typeof entry !== 'object') return;
+        const licenseId = (typeof entry.id === 'string' ? entry.id.trim() : null)
+            || (typeof entry.licenseId === 'string' ? entry.licenseId.trim() : null);
+        const group = typeof entry.group === 'string' && entry.group.trim() ? entry.group.trim() : null;
+
+        if (licenseId && group) {
+            groupMap.set(licenseId, group);
+            groupsSet.add(group);
+        }
+    });
+
+    licenseGroupMap = groupMap;
+    availableGroups = Array.from(groupsSet).sort();
+    return { groupCount: groupMap.size };
+}
+
 async function loadLicenseAliasesFromInput() {
     if (!licenseFileInput || !licenseFileInput.files || licenseFileInput.files.length === 0) {
         licenseAliasMap = new Map();
         licenseGroupMap = new Map();
         availableGroups = [];
-        updateLicenseFileStatus('No alias file selected; showing license IDs as ...XXXX.');
-        populateGroupFilterDropdown();
+        selectedGroups.clear();
+        selectedLicenses.clear();
+        localStorage.removeItem('unity_license_data');
+        updateLicenseFileStatus('No group mapping file selected.');
+        buildGroupDropdown();
+        buildLicensesDropdown();
         return;
     }
 
@@ -532,36 +748,17 @@ async function loadLicenseAliasesFromInput() {
         throw new Error('JSON must be an array.');
     }
 
-    const aliasMap = new Map();
-    const groupMap = new Map();
-    const groupsSet = new Set();
-    
-    parsed.forEach((entry, idx) => {
-        if (!entry || typeof entry !== 'object') return;
-        const licenseId = typeof entry.licenseId === 'string' ? entry.licenseId.trim() : null;
-        const alias = typeof entry.alias === 'string' && entry.alias.trim()
-            ? entry.alias.trim()
-            : (typeof entry.deviceName === 'string' && entry.deviceName.trim() ? entry.deviceName.trim() : null);
-        const group = typeof entry.group === 'string' && entry.group.trim() ? entry.group.trim() : null;
+    const { groupCount } = applyLicenseData(parsed);
+    localStorage.setItem('unity_license_data', JSON.stringify(parsed));
+    selectedGroups.clear();
+    selectedLicenses.clear();
+    buildGroupDropdown();
+    buildLicensesDropdown();
 
-        if (licenseId && alias) {
-            aliasMap.set(licenseId, alias);
-        }
-        if (licenseId && group) {
-            groupMap.set(licenseId, group);
-            groupsSet.add(group);
-        }
-    });
-
-    licenseAliasMap = aliasMap;
-    licenseGroupMap = groupMap;
-    availableGroups = Array.from(groupsSet).sort();
-    populateGroupFilterDropdown();
-
-    if (aliasMap.size === 0) {
-        updateLicenseFileStatus(`${file.name}: no valid entries found; showing license IDs as ...XXXX.`);
+    if (groupCount === 0) {
+        updateLicenseFileStatus(`${file.name}: no group mappings found.`);
     } else {
-        updateLicenseFileStatus(`Loaded ${aliasMap.size} aliases and ${groupMap.size} groups from ${file.name}.`);
+        updateLicenseFileStatus(`Loaded ${groupCount} group mappings from ${file.name}.`);
     }
 }
 
@@ -573,28 +770,135 @@ function resolveLicenseAlias(licenseId) {
     return licenseId.length > 4 ? `...${licenseId.slice(-4)}` : licenseId;
 }
 
-function populateGroupFilterDropdown() {
-    if (!dailyAvgGroupFilterSelect) return;
-    
-    const currentSelection = dailyAvgGroupFilterSelect.value;
-    dailyAvgGroupFilterSelect.innerHTML = '<option value="all">All Devices</option>';
-    
-    // Add options for each available group
-    availableGroups.forEach(group => {
-        const option = document.createElement('option');
-        option.value = group;
-        option.textContent = group;
-        dailyAvgGroupFilterSelect.appendChild(option);
+// ── Filter Dropdowns ──────────────────────────────────────
+
+const GROUP_LIMIT = 3;
+const LICENSE_LIMIT = 5;
+
+function refreshGroupDisabledState() {
+    const panel = document.getElementById('group-dropdown-panel');
+    if (!panel) return;
+    const atLimit = selectedGroups.size >= GROUP_LIMIT;
+    panel.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        cb.disabled = atLimit && !cb.checked;
     });
-    
-    // Restore previous selection if it's still valid, otherwise default to 'all'
-    if (availableGroups.includes(currentSelection)) {
-        dailyAvgGroupFilterSelect.value = currentSelection;
-    } else {
-        dailyAvgGroupFilterSelect.value = 'all';
-        dailyAvgGroupFilter = 'all';
-    }
 }
+
+function refreshLicensesDisabledState() {
+    const panel = document.getElementById('licenses-dropdown-panel');
+    if (!panel) return;
+    const atLimit = selectedLicenses.size >= LICENSE_LIMIT;
+    panel.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        cb.disabled = atLimit && !cb.checked;
+    });
+}
+
+function updateFilterCount(countId, count) {
+    const countEl = document.getElementById(countId);
+    if (!countEl) return;
+    countEl.textContent = count;
+    countEl.classList.toggle('visible', count > 0);
+    const trigger = countEl.closest('.filter-dropdown')?.querySelector('.filter-dropdown-btn');
+    if (trigger) trigger.classList.toggle('has-selection', count > 0);
+}
+
+function buildGroupDropdown() {
+    const panel = document.getElementById('group-dropdown-panel');
+    const trigger = document.getElementById('group-dropdown-trigger');
+    if (!panel || !trigger) return;
+
+    const hasGroups = availableGroups.length > 0;
+    trigger.disabled = !hasGroups;
+    panel.innerHTML = '';
+
+    if (!hasGroups) {
+        updateFilterCount('group-count', 0);
+        return;
+    }
+
+    availableGroups.forEach(group => {
+        const item = document.createElement('label');
+        item.className = 'filter-dropdown-item';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = group;
+        cb.checked = selectedGroups.has(group);
+        cb.addEventListener('change', () => {
+            if (cb.checked) selectedGroups.add(group);
+            else selectedGroups.delete(group);
+
+            // Drop selected licenses no longer in scope
+            const available = new Set(getFilteredLicenses());
+            for (const lic of [...selectedLicenses]) {
+                if (!available.has(lic)) selectedLicenses.delete(lic);
+            }
+
+            updateFilterCount('group-count', selectedGroups.size);
+            refreshGroupDisabledState();
+            buildLicensesDropdown();
+            rerenderCharts();
+        });
+        item.appendChild(cb);
+        item.appendChild(document.createTextNode(' ' + group));
+        panel.appendChild(item);
+    });
+
+    updateFilterCount('group-count', selectedGroups.size);
+    refreshGroupDisabledState();
+}
+
+function buildLicensesDropdown() {
+    const panel = document.getElementById('licenses-dropdown-panel');
+    const trigger = document.getElementById('licenses-dropdown-trigger');
+    if (!panel || !trigger) return;
+
+    panel.innerHTML = '';
+    const licenses = getFilteredLicenses();
+    trigger.disabled = licenses.length === 0;
+
+    licenses.forEach(lic => {
+        const item = document.createElement('label');
+        item.className = 'filter-dropdown-item';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = lic;
+        cb.checked = selectedLicenses.has(lic);
+        cb.addEventListener('change', () => {
+            if (cb.checked) selectedLicenses.add(lic);
+            else selectedLicenses.delete(lic);
+            updateFilterCount('licenses-count', selectedLicenses.size);
+            refreshLicensesDisabledState();
+            rerenderCharts();
+        });
+        item.appendChild(cb);
+        item.appendChild(document.createTextNode(' ' + lic));
+        panel.appendChild(item);
+    });
+
+    updateFilterCount('licenses-count', selectedLicenses.size);
+    refreshLicensesDisabledState();
+}
+
+function initFilterDropdowns() {
+    document.querySelectorAll('.filter-dropdown').forEach(dropdown => {
+        const trigger = dropdown.querySelector('.filter-dropdown-btn');
+        const panel = dropdown.querySelector('.filter-dropdown-panel');
+        if (!trigger || !panel) return;
+        trigger.addEventListener('click', e => {
+            e.stopPropagation();
+            document.querySelectorAll('.filter-dropdown-panel').forEach(p => {
+                if (p !== panel) p.classList.remove('open');
+            });
+            panel.classList.toggle('open');
+        });
+    });
+
+    document.addEventListener('click', () => {
+        document.querySelectorAll('.filter-dropdown-panel.open').forEach(p => p.classList.remove('open'));
+    });
+}
+
+// ── Auth ──────────────────────────────────────────────────
 
 function checkAuth() {
     const authState = getAuthState();
@@ -608,7 +912,7 @@ function checkAuth() {
     const shortWallet = web3Account
         ? `${web3Account.slice(0, 4)}...${web3Account.slice(-4)}`
         : 'Not connected';
-    
+
     if (token) {
         document.body.classList.remove('wallet-disconnected');
         authStatus.textContent = `Wallet: ${shortWallet}`;
@@ -616,9 +920,6 @@ function checkAuth() {
         authStatus.style.display = 'inline-flex';
         if (walletMenu) {
             walletMenu.style.display = 'inline-flex';
-        }
-        if (summaryTotal) {
-            summaryTotal.closest('.summary-strip').style.display = 'flex';
         }
         if (debugAccessToken) {
             const access = authState.accessToken;
@@ -639,7 +940,8 @@ function checkAuth() {
         }
         startAutoRefresh();
         authSection.style.display = 'none';
-        dashboardContent.style.display = 'block';
+        dashboardContent.style.display = 'grid';
+        loadLicenses();
         loadData();
         loadSummary();
         loadBalance();
@@ -650,9 +952,6 @@ function checkAuth() {
         authStatus.style.display = 'none';
         if (walletMenu) {
             walletMenu.style.display = 'none';
-        }
-        if (summaryTotal) {
-            summaryTotal.closest('.summary-strip').style.display = 'none';
         }
         if (debugAccessToken) {
             debugAccessToken.textContent = '-';
@@ -667,7 +966,7 @@ function checkAuth() {
             debugNextRefresh.textContent = '-';
         }
         stopAutoRefresh();
-        authSection.style.display = 'block';
+        authSection.style.display = 'flex';
         dashboardContent.style.display = 'none';
         resetSummary();
     }
@@ -676,20 +975,30 @@ function checkAuth() {
 function logout() {
     if (confirm('Are you sure you want to logout? This will clear your session token.')) {
         sessionStorage.clear();
+        localStorage.removeItem('unity_license_data');
         currentData = null;
+        rawAllocations = null;
         licenseAliasMap = new Map();
+        licenseGroupMap = new Map();
+        availableGroups = [];
+        selectedGroups.clear();
+        selectedLicenses.clear();
         web3Signature = '';
         web3Account = '';
         stopAutoRefresh();
         if (licenseFileInput) {
             licenseFileInput.value = '';
         }
-        updateLicenseFileStatus('No file selected; showing license IDs as ...XXXX.');
+        updateLicenseFileStatus('No group mapping file selected.');
+        buildGroupDropdown();
+        buildLicensesDropdown();
         checkAuth();
         updateWeb3Ui();
         resetSummary();
     }
 }
+
+// ── Card Expansion ────────────────────────────────────────
 
 function initializeCardExpansion() {
     const expandableCards = document.querySelectorAll('[data-expandable="true"]');
@@ -735,8 +1044,8 @@ function initializeTableSorting() {
                 tableSortState.direction = tableDefaultDirections[key] || 'asc';
             }
 
-            if (currentData?.summaries) {
-                renderTable(currentData.summaries);
+            if (currentData) {
+                renderTable(getGlobalFilteredSummaries());
             } else {
                 updateSortIndicators();
             }
@@ -812,12 +1121,14 @@ function closeCardOverlay() {
     window.dispatchEvent(new Event('resize'));
 }
 
+// ── Data Loading ──────────────────────────────────────────
+
 async function loadData() {
     if (refreshBtn) {
         refreshBtn.disabled = true;
         refreshBtn.textContent = 'Loading...';
     }
-    
+
     try {
         const authState = getAuthState();
         if (!authState.accessToken) {
@@ -825,7 +1136,6 @@ async function loadData() {
             return;
         }
 
-        // Fetch Data with Pagination
         const BATCH_SIZE = 1000;
         let allAllocations = [];
         let skip = 0;
@@ -855,31 +1165,25 @@ async function loadData() {
             }
 
             const batchData = await allocationsRes.json();
-            
+
             if (Array.isArray(batchData)) {
                 allAllocations = allAllocations.concat(batchData);
-                
                 if (batchData.length < BATCH_SIZE) {
                     hasMore = false;
                 } else {
                     skip += BATCH_SIZE;
                 }
             } else {
-                // Unexpected response format
                 hasMore = false;
             }
         }
 
+        rawAllocations = allAllocations;
         const rawData = allAllocations;
-        console.log('Raw API Data:', rawData);
-        // DEBUG: Analyze raw data dates
         const dates = rawData.map(i => i.completedAt);
-        const uniqueDates = [...new Set(dates)];
         const uniqueDays = [...new Set(dates.map(d => d ? d.split('T')[0] : 'null'))];
-        
         console.log('API Response Analysis:', {
             totalRecords: rawData.length,
-            uniqueTimestampsCount: uniqueDates.length,
             uniqueDays: uniqueDays,
             firstTimestamp: dates[0],
             lastTimestamp: dates[dates.length - 1],
@@ -887,13 +1191,13 @@ async function loadData() {
         });
 
         const processed = processAllocations(rawData);
-        
         currentData = processed;
         renderDashboard(getFilteredData());
-        const lastUpdated = document.getElementById('last-updated');
-        if (lastUpdated) {
-            lastUpdated.textContent = `Updated: ${new Date().toLocaleTimeString()}`;
-        }
+
+        const lastUpdatedEl = document.getElementById('last-updated');
+        const nextRefreshEl = document.getElementById('next-refresh');
+        if (lastUpdatedEl) lastUpdatedEl.textContent = `UPD ${new Date().toLocaleTimeString()}`;
+        if (nextRefreshEl) nextRefreshEl.textContent = `NEXT ${new Date(Date.now() + REFRESH_INTERVAL_MS).toLocaleTimeString()}`;
         loadSummary();
         loadBalance();
     } catch (err) {
@@ -907,10 +1211,11 @@ async function loadData() {
     }
 }
 
+// ── Data Processing ───────────────────────────────────────
+
 function processAllocations(allocations) {
     const grouped = {};
-    
-    // 1. Group by UTC Date and LicenseId
+
     for (const item of allocations) {
         if (!item.completedAt) continue;
 
@@ -924,39 +1229,43 @@ function processAllocations(allocations) {
                 date: dateKey,
                 licenseId: licenseId,
                 count: 0,
-                sumMicros: 0
+                sumMicros: 0,
+                uptimeSum: 0,
+                uptimeCount: 0
             };
         }
 
         grouped[key].count++;
         grouped[key].sumMicros += (item.amountMicros || 0);
+        if (item.uptime != null) {
+            grouped[key].uptimeSum += item.uptime;
+            grouped[key].uptimeCount++;
+        }
     }
 
-    // 2. Transform to Summary Objects
     const summaries = Object.values(grouped).map(g => {
         const totalAmount = g.sumMicros / 1_000_000;
         const licenseAlias = resolveLicenseAlias(g.licenseId);
-        
+
         return {
             date: g.date,
             licenseId: g.licenseId,
             licenseAlias: licenseAlias,
             count: g.count,
             totalAmount: totalAmount,
-            averageAmount: g.count > 0 ? totalAmount / g.count : 0
+            averageAmount: g.count > 0 ? totalAmount / g.count : 0,
+            averageUptime: g.uptimeCount > 0 ? g.uptimeSum / g.uptimeCount : null
         };
     });
 
-    // 3. Calculate High-Level Totals
     const totalCount = summaries.reduce((sum, s) => sum + s.count, 0);
     const grandTotalAmount = summaries.reduce((sum, s) => sum + s.totalAmount, 0);
 
-    // 4. Average Per Device
     const deviceGroups = {};
     summaries.forEach(s => {
         if (!deviceGroups[s.licenseAlias]) deviceGroups[s.licenseAlias] = { total: 0, count: 0 };
         deviceGroups[s.licenseAlias].total += s.totalAmount;
-        deviceGroups[s.licenseAlias].count += 1; 
+        deviceGroups[s.licenseAlias].count += 1;
     });
 
     const averagePerDevice = Object.entries(deviceGroups).map(([name, data]) => ({
@@ -965,7 +1274,6 @@ function processAllocations(allocations) {
         totalAmount: data.total
     }));
 
-    // 5. Average Per Day
     const dayGroups = {};
     summaries.forEach(s => {
         if (!dayGroups[s.date]) dayGroups[s.date] = { total: 0, count: 0, recordCount: 0 };
@@ -983,7 +1291,6 @@ function processAllocations(allocations) {
         averagePerReward: data.recordCount > 0 ? data.total / data.recordCount : 0
     })).sort((a, b) => a.date.localeCompare(b.date));
 
-    // 6. Daily Average by Device (total rewards / total allocations per day per device)
     let totalDailyDeviceAverages = 0;
     let dailyDeviceCount = 0;
     summaries.forEach(s => {
@@ -1019,354 +1326,230 @@ function processAllocations(allocations) {
     };
 }
 
+// ── Render ────────────────────────────────────────────────
+
 function renderDashboard(data) {
-    // Metrics
-    const totalAmountEl = document.getElementById('metric-total-amount');
-    const totalCountEl = document.getElementById('metric-total-count');
-    const dailyAvgEl = document.getElementById('metric-daily-avg-by-device');
-    if (totalAmountEl) {
-        totalAmountEl.textContent = data.totals.totalAmount.toFixed(2);
-    }
-    if (totalCountEl) {
-        totalCountEl.textContent = data.totals.count;
-    }
-    if (dailyAvgEl) {
-        dailyAvgEl.textContent = data.averages.dailyByDevice.toFixed(2);
-    }
     if (summaryDailyAverage) {
         summaryDailyAverage.textContent = data.averages.dailyByDevice.toFixed(2);
     }
 
-    // Charts
-    renderDailyChart(data.averages.perDay);
-    renderDeviceChart(data.averages.perDevice);
-    renderDistributionChart(data.averages.perDevice);
-    renderDailyAvgByDeviceChartFiltered(data.summaries);
-    renderMoversChart(data.summaries);
+    buildGroupDropdown();
+    buildLicensesDropdown();
 
-    // Populate Dropdown
-    const currentSelection = deviceSelect.value;
-    deviceSelect.innerHTML = '<option value="">Select License ID</option>';
-    
-    // Populate Table Filter
-    const currentTableFilter = tableDeviceFilter.value;
-    tableDeviceFilter.innerHTML = '<option value="all">All License IDs</option>';
+    const summaries = getGlobalFilteredSummaries();
+    renderTotalAmountChart(summaries);
+    renderAverageChart(summaries);
+    renderTable(summaries);
+}
 
-    // Sort devices alphabetically
-    const devices = data.averages.perDevice.map(d => d.licenseAlias).sort((a, b) => a.localeCompare(b));
-    
-    devices.forEach(dev => {
-        // Chart dropdown
-        const option = document.createElement('option');
-        option.value = dev;
-        option.textContent = dev;
-        deviceSelect.appendChild(option);
+function rerenderCharts() {
+    if (!currentData) return;
+    const summaries = getGlobalFilteredSummaries();
+    renderTotalAmountChart(summaries);
+    renderAverageChart(summaries);
+    renderTable(summaries);
+}
 
-        // Table filter dropdown
-        const filterOption = document.createElement('option');
-        filterOption.value = dev;
-        filterOption.textContent = dev;
-        tableDeviceFilter.appendChild(filterOption);
-    });
+function renderTotalAmountChart(summaries) {
+    const canvas = document.getElementById('totalAmountChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
 
-    // Restore selection or select first
-    if (currentSelection && devices.includes(currentSelection)) {
-        deviceSelect.value = currentSelection;
-    } else if (devices.length > 0) {
-        deviceSelect.value = devices[0];
+    if (charts.totalAmount) charts.totalAmount.destroy();
+    if (!summaries || summaries.length === 0) return;
+
+    const dates = [...new Set(summaries.map(s => s.date))].sort();
+    const activeGroups = [...selectedGroups];
+    let datasets;
+
+    if (activeGroups.length > 0) {
+        datasets = activeGroups.map((group, i) => {
+            const color = getSeriesColor(i);
+            const byDate = new Map();
+            summaries
+                .filter(s => licenseGroupMap.get(s.licenseId) === group)
+                .forEach(s => byDate.set(s.date, (byDate.get(s.date) || 0) + s.totalAmount));
+            return {
+                label: group,
+                data: dates.map(d => byDate.get(d) || 0),
+                backgroundColor: color + 'b3',
+                borderColor: color,
+                borderWidth: 1
+            };
+        });
+    } else {
+        const color = getSeriesColor(0);
+        const byDate = new Map();
+        summaries.forEach(s => byDate.set(s.date, (byDate.get(s.date) || 0) + s.totalAmount));
+        datasets = [{
+            label: 'Total',
+            data: dates.map(d => byDate.get(d) || 0),
+            backgroundColor: color + 'b3',
+            borderColor: color,
+            borderWidth: 1
+        }];
     }
 
-    // Restore table filter
-    if (currentTableFilter && (devices.includes(currentTableFilter) || currentTableFilter === 'all')) {
-        tableDeviceFilter.value = currentTableFilter;
-    }
-    
-    // Render initial single device chart
-    renderSingleDeviceChart(deviceSelect.value, data.summaries);
-
-    // Table
-    renderTable(data.summaries);
-}
-
-function renderSingleDeviceChart(licenseAlias, summaries) {
-    const ctx = document.getElementById('singleDeviceChart').getContext('2d');
-    
-    if (charts.singleDevice) charts.singleDevice.destroy();
-
-    if (!licenseAlias) return;
-
-    // Filter data for the selected device and sort by date
-    const deviceData = summaries
-        .filter(s => s.licenseAlias === licenseAlias)
-        .sort((a, b) => a.date.localeCompare(b.date));
-
-    // Use bar chart if only one data point to ensure visibility
-    const chartType = deviceData.length === 1 ? 'bar' : 'line';
-    const bgColor = deviceData.length === 1 ? '#ff9f43' : 'rgba(255, 159, 67, 0.1)';
-
-    charts.singleDevice = new Chart(ctx, {
-        type: chartType,
-        data: {
-            labels: deviceData.map(d => d.date),
-            datasets: [{
-                label: `Total Amount (${licenseAlias})`,
-                data: deviceData.map(d => d.totalAmount),
-                borderColor: '#ff9f43',
-                backgroundColor: bgColor,
-                tension: 0.1,
-                fill: deviceData.length > 1,
-                pointRadius: 6,
-                pointHoverRadius: 8
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: { beginAtZero: true }
-            }
-        }
-    });
-}
-
-function renderDailyChart(perDayData) {
-    const ctx = document.getElementById('dailyChart').getContext('2d');
-    
-    if (charts.daily) charts.daily.destroy();
-
-    // Use bar chart if only one data point to ensure visibility
-    const chartType = perDayData.length === 1 ? 'bar' : 'line';
-    const bgColor = perDayData.length === 1 ? '#4a90e2' : 'rgba(74, 144, 226, 0.1)';
-
-    charts.daily = new Chart(ctx, {
-        type: chartType,
-        data: {
-            labels: perDayData.map(d => d.date),
-            datasets: [{
-                label: 'Total Amount',
-                data: perDayData.map(d => d.totalAmount),
-                borderColor: '#4a90e2',
-                backgroundColor: bgColor,
-                tension: 0.1,
-                fill: perDayData.length > 1,
-                pointRadius: 6,
-                pointHoverRadius: 8
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                y: { beginAtZero: true }
-            }
-        }
-    });
-}
-
-function renderDeviceChart(perDeviceData) {
-    const ctx = document.getElementById('deviceChart').getContext('2d');
-    
-    if (charts.device) charts.device.destroy();
-
-    charts.device = new Chart(ctx, {
+    charts.totalAmount = new Chart(ctx, {
         type: 'bar',
-        data: {
-            labels: perDeviceData.map(d => d.licenseAlias),
-            datasets: [{
-                label: 'Average Amount',
-                data: perDeviceData.map(d => d.averageAmount),
-                backgroundColor: '#66bb6a'
-            }]
-        },
+        data: { labels: dates, datasets },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            scales: {
-                y: { beginAtZero: true }
-            }
-        }
-    });
-}
-
-function renderDistributionChart(perDeviceData) {
-    const canvas = document.getElementById('distributionChart');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-
-    if (charts.distribution) charts.distribution.destroy();
-    if (!perDeviceData || perDeviceData.length === 0) return;
-
-    const totals = perDeviceData
-        .map(device => (typeof device.totalAmount === 'number' ? device.totalAmount : Number(device.totalAmount) || 0))
-        .filter(value => !Number.isNaN(value));
-
-    if (totals.length === 0) return;
-
-    const mean = totals.reduce((sum, value) => sum + value, 0) / totals.length;
-    const variance = totals.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / totals.length;
-    const stdDev = variance > 0 ? Math.sqrt(variance) : 1;
-
-    const min = Math.min(...totals);
-    const max = Math.max(...totals);
-    const spanStart = Math.min(mean - (3 * stdDev), min);
-    const spanEnd = Math.max(mean + (3 * stdDev), max);
-    const pointCount = 80;
-    const range = spanEnd - spanStart;
-    const step = range === 0 ? 1 : range / Math.max(pointCount - 1, 1);
-
-    const sqrtTwoPi = Math.sqrt(2 * Math.PI);
-    const totalSum = totals.reduce((sum, value) => sum + value, 0);
-
-    const curvePoints = [];
-    for (let idx = 0; idx < pointCount; idx++) {
-        const x = spanStart + (step * idx);
-        const z = (x - mean) / stdDev;
-        const pdf = Math.exp(-0.5 * z * z) / (stdDev * sqrtTwoPi);
-        curvePoints.push({ x: Number.isFinite(x) ? x : 0, y: pdf * totalSum });
-    }
-
-    const scatterPoints = totals.map(value => ({ x: value, y: 0 }));
-
-    charts.distribution = new Chart(ctx, {
-        type: 'line',
-        data: {
-            datasets: [
-                {
-                    label: 'Normal Distribution Curve',
-                    data: curvePoints,
-                    parsing: false,
-                    borderColor: '#4a90e2',
-                    backgroundColor: 'rgba(74, 144, 226, 0.1)',
-                    tension: 0.25,
-                    fill: true,
-                    pointRadius: 0
-                },
-                {
-                    type: 'scatter',
-                    label: 'Device Totals',
-                    data: scatterPoints,
-                    parsing: false,
-                    borderColor: '#ff9f43',
-                    backgroundColor: '#ff9f43',
-                    pointRadius: 4,
-                    pointHoverRadius: 6
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                x: {
-                    type: 'linear',
-                    title: { display: true, text: 'Total Rewards per License' }
-                },
-                y: {
-                    beginAtZero: true,
-                    title: { display: true, text: 'Density (scaled)' }
+            plugins: {
+                legend: {
+                    display: datasets.length > 1,
+                    labels: legendLabels()
                 }
             },
-            plugins: {
-                legend: { position: 'bottom' },
-                tooltip: {
-                    callbacks: {
-                        label: (context) => {
-                            const xVal = context.parsed.x;
-                            const yVal = context.parsed.y;
-                            if (context.dataset.type === 'scatter') {
-                                return `Device Total: ${xVal.toFixed(2)}`;
-                            }
-                            return `Curve: ${yVal.toFixed(2)} at ${xVal.toFixed(2)}`;
-                        }
-                    }
-                }
-            }
+            scales: bbgScales()
         }
     });
 }
 
-
-function renderDailyAvgByDeviceChart(perDayData) {
-    const canvas = document.getElementById('dailyAvgByDeviceChart');
+function renderAverageChart(summaries) {
+    const canvas = document.getElementById('averageChart');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    
-    if (charts.dailyAvgByDevice) charts.dailyAvgByDevice.destroy();
 
-    // Use bar chart if only one data point to ensure visibility
-    const chartType = perDayData.length === 1 ? 'bar' : 'line';
-    const bgColor = perDayData.length === 1 ? '#e76f51' : 'rgba(231, 111, 81, 0.1)';
+    if (charts.average) charts.average.destroy();
+    if (!summaries || summaries.length === 0) return;
 
-    charts.dailyAvgByDevice = new Chart(ctx, {
-        type: chartType,
-        data: {
-            labels: perDayData.map(d => d.date),
-            datasets: [{
-                label: 'Average per Allocation',
-                data: perDayData.map(d => d.averagePerReward),
-                borderColor: '#e76f51',
-                backgroundColor: bgColor,
+    const dates = [...new Set(summaries.map(s => s.date))].sort();
+    const activeLicenses = [...selectedLicenses];
+    let rewardDatasets;
+
+    if (activeLicenses.length > 0) {
+        rewardDatasets = activeLicenses.map((lic, i) => {
+            const color = getSeriesColor(i);
+            const byDate = new Map();
+            summaries
+                .filter(s => resolveLicenseAlias(s.licenseId) === lic)
+                .forEach(s => byDate.set(s.date, s.averageAmount));
+            return {
+                type: 'line',
+                label: lic,
+                data: dates.map(d => byDate.has(d) ? byDate.get(d) : null),
+                borderColor: color,
+                backgroundColor: color + '14',
                 tension: 0.1,
-                fill: perDayData.length > 1,
-                pointRadius: 6,
-                pointHoverRadius: 8
-            }]
-        },
+                fill: false,
+                pointRadius: 2,
+                pointHoverRadius: 4,
+                spanGaps: true,
+                yAxisID: 'y'
+            };
+        });
+    } else {
+        const dayAgg = new Map();
+        summaries.forEach(s => {
+            if (!dayAgg.has(s.date)) dayAgg.set(s.date, { total: 0, count: 0, licenses: 0 });
+            const d = dayAgg.get(s.date);
+            d.total += s.totalAmount;
+            d.count += s.count;
+            d.licenses += 1;
+        });
+        const c0 = getSeriesColor(0);
+        const rewardsMeta = dates.map(d => dayAgg.get(d) || null);
+        rewardDatasets = [{
+            type: 'line',
+            label: 'Avg',
+            _meta: rewardsMeta,
+            data: dates.map(d => {
+                const agg = dayAgg.get(d);
+                return agg && agg.licenses > 0 ? agg.total / agg.licenses : null;
+            }),
+            borderColor: c0,
+            backgroundColor: c0 + '14',
+            tension: 0.1,
+            fill: dates.length > 1,
+            pointRadius: 2,
+            pointHoverRadius: 4,
+            spanGaps: true,
+            yAxisID: 'y'
+        }];
+    }
+
+    // Per-day average uptime: average uptime of all licenses active on each date
+    // Per-day average uptime: average across all licenses active on each date
+    const uptimeByDay = new Map();
+    summaries.forEach(s => {
+        const dayMap = licenseAnalyticsMap.get(s.licenseId);
+        if (!dayMap) return;
+        const uptime = dayMap.get(s.date);
+        if (uptime == null) return;
+        if (!uptimeByDay.has(s.date)) uptimeByDay.set(s.date, { sum: 0, count: 0 });
+        const u = uptimeByDay.get(s.date);
+        u.sum += uptime;
+        u.count += 1;
+    });
+    const uptimeScale = 100; // API returns 0–1 decimals
+
+    const hasUptimeData = uptimeByDay.size > 0;
+    const uptimeDataset = {
+        type: 'bar',
+        label: 'Uptime %',
+        data: dates.map(d => {
+            const u = uptimeByDay.get(d);
+            return u && u.count > 0 ? (u.sum / u.count) * uptimeScale : null;
+        }),
+        backgroundColor: themeColor('rgba(0,180,80,0.18)', 'rgba(0,140,60,0.18)'),
+        borderColor: themeColor('#00b450', '#00883c'),
+        borderWidth: 1,
+        yAxisID: 'y1'
+    };
+
+    const datasets = hasUptimeData ? [...rewardDatasets, uptimeDataset] : rewardDatasets;
+
+    const legendCount = datasets.filter(d => d.type === 'line').length;
+
+    charts.average = new Chart(ctx, {
+        type: 'bar',
+        data: { labels: dates, datasets },
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            scales: {
-                y: { beginAtZero: true }
-            },
             plugins: {
+                legend: {
+                    display: legendCount > 1,
+                    labels: legendLabels()
+                },
                 tooltip: {
                     callbacks: {
-                        afterLabel: (context) => {
-                            const dataIndex = context.dataIndex;
-                            const dayData = perDayData[dataIndex];
-                            if (!dayData) return '';
-                            return [
-                                `Devices: ${dayData.deviceCount}`,
-                                `Total Rewards: ${dayData.totalAmount.toFixed(2)}`
-                            ];
+                        label: (ctx) => {
+                            if (ctx.dataset.label === 'Uptime %') {
+                                const val = ctx.parsed.y;
+                                return val != null ? ` Uptime: ${val.toFixed(2)}%` : null;
+                            }
+                            if (ctx.dataset._meta) {
+                                const m = ctx.dataset._meta[ctx.dataIndex];
+                                if (!m || m.licenses === 0) return null;
+                                const result = (m.total / m.licenses).toFixed(6);
+                                return ` Avg: ${m.total.toFixed(3)}/${m.licenses}=${result}`;
+                            }
+                            const val = ctx.parsed.y;
+                            return val != null ? ` ${ctx.dataset.label}: ${val.toFixed(6)}` : null;
                         }
                     }
+                }
+            },
+            scales: {
+                ...bbgScales(),
+                y1: {
+                    position: 'right',
+                    min: 0,
+                    max: 100,
+                    grid: { color: 'transparent' },
+                    ticks: {
+                        color: themeColor('#555555', '#88806e'),
+                        maxTicksLimit: 5,
+                        callback: v => v + '%'
+                    },
+                    border: { color: themeColor('#1e1e1e', '#d4cec0') }
                 }
             }
         }
     });
-}
-
-function renderDailyAvgByDeviceChartFiltered(summaries) {
-    // Filter summaries based on selected group
-    let filteredSummaries = summaries;
-    
-    if (dailyAvgGroupFilter !== 'all') {
-        filteredSummaries = summaries.filter(s => 
-            licenseGroupMap.get(s.licenseId) === dailyAvgGroupFilter
-        );
-    }
-
-    // Recalculate per-day data based on filtered summaries
-    const dayGroups = {};
-    filteredSummaries.forEach(s => {
-        if (!dayGroups[s.date]) dayGroups[s.date] = { total: 0, count: 0, recordCount: 0 };
-        dayGroups[s.date].total += s.totalAmount;
-        dayGroups[s.date].count += 1;
-        dayGroups[s.date].recordCount += s.count;
-    });
-
-    const perDayData = Object.entries(dayGroups).map(([date, data]) => ({
-        date: date,
-        count: data.recordCount,
-        deviceCount: data.count,
-        totalAmount: data.total,
-        averageAmount: data.count > 0 ? data.total / data.count : 0,
-        averagePerReward: data.recordCount > 0 ? data.total / data.recordCount : 0
-    })).sort((a, b) => a.date.localeCompare(b.date));
-
-    // Call the original render function with filtered data
-    renderDailyAvgByDeviceChart(perDayData);
 }
 
 function renderTable(summaries) {
@@ -1379,24 +1562,19 @@ function renderTable(summaries) {
         return;
     }
 
-    const filterValue = tableDeviceFilter.value;
-    const filteredSummaries = filterValue === 'all' 
-        ? summaries 
-        : summaries.filter(s => s.licenseAlias === filterValue);
-
     const comparator = tableComparators[tableSortState.key];
-    const sortedSummaries = comparator
-        ? [...filteredSummaries].sort((a, b) => {
+    const sorted = comparator
+        ? [...summaries].sort((a, b) => {
             const result = comparator(a, b);
             return tableSortState.direction === 'asc' ? result : -result;
         })
-        : filteredSummaries;
+        : summaries;
 
-    sortedSummaries.forEach(row => {
+    sorted.forEach(row => {
         const tr = document.createElement('tr');
         tr.innerHTML = `
             <td>${row.date}</td>
-            <td>${row.licenseAlias}</td>
+            <td>${resolveLicenseAlias(row.licenseId)}</td>
             <td>${row.count}</td>
             <td>${row.totalAmount.toFixed(6)}</td>
             <td>${row.averageAmount.toFixed(6)}</td>
@@ -1404,109 +1582,8 @@ function renderTable(summaries) {
         tbody.appendChild(tr);
     });
 
+    const rowCountEl = document.getElementById('row-count');
+    if (rowCountEl) rowCountEl.textContent = `${sorted.length} ROWS`;
+
     updateSortIndicators();
-}
-function computeMovers(summaries) {
-    const dates = [...new Set(summaries.map(s => s.date))].sort((a, b) => b.localeCompare(a));
-    if (dates.length < 2) return { gainers: [], losers: [], latestDate: dates[0], prevDate: null };
-
-    const latestDate = dates[0];
-    const prevDate = dates[1];
-
-    const latestMap = new Map();
-    const prevMap = new Map();
-    summaries.forEach(s => {
-        if (s.date === latestDate) latestMap.set(s.licenseAlias, s.totalAmount);
-        if (s.date === prevDate) prevMap.set(s.licenseAlias, s.totalAmount);
-    });
-
-    const allLicenses = new Set([...latestMap.keys(), ...prevMap.keys()]);
-    const deltas = [];
-    allLicenses.forEach(alias => {
-        const latest = latestMap.get(alias) ?? 0;
-        const prev = prevMap.get(alias) ?? 0;
-        deltas.push({ licenseAlias: alias, delta: latest - prev });
-    });
-
-    const sorted = [...deltas].sort((a, b) => a.delta - b.delta);
-    const losers = sorted.slice(0, 5);
-    const gainers = sorted.slice(-5).reverse();
-
-    return { gainers, losers, latestDate, prevDate };
-}
-
-function renderMoversChart(summaries) {
-    if (charts.losers) { charts.losers.destroy(); charts.losers = null; }
-    if (charts.gainers) { charts.gainers.destroy(); charts.gainers = null; }
-
-    const { gainers, losers, latestDate, prevDate } = computeMovers(summaries);
-    if (!gainers.length && !losers.length) return;
-
-    const lEl = document.getElementById('losersChart');
-    const gEl = document.getElementById('gainersChart');
-    if (!lEl || !gEl) return;
-
-    const changeLabel = prevDate ? `Change (${prevDate} \u2192 ${latestDate})` : `Latest (${latestDate})`;
-
-    const losersDisplay = [...losers].reverse();
-    charts.losers = new Chart(lEl.getContext('2d'), {
-        type: 'bar',
-        data: {
-            labels: losersDisplay.map(d => d.licenseAlias),
-            datasets: [{
-                label: changeLabel,
-                data: losersDisplay.map(d => d.delta),
-                backgroundColor: 'rgba(239, 83, 80, 0.65)',
-                borderColor: '#ef5350',
-                borderWidth: 1
-            }]
-        },
-        options: {
-            indexAxis: 'y',
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label: ctx => ` ${ctx.raw >= 0 ? '+' : ''}${ctx.raw.toFixed(6)}`
-                    }
-                }
-            },
-            scales: {
-                x: { beginAtZero: false }
-            }
-        }
-    });
-
-    const gainersDisplay = [...gainers].reverse();
-    charts.gainers = new Chart(gEl.getContext('2d'), {
-        type: 'bar',
-        data: {
-            labels: gainersDisplay.map(d => d.licenseAlias),
-            datasets: [{
-                label: changeLabel,
-                data: gainersDisplay.map(d => d.delta),
-                backgroundColor: 'rgba(102, 187, 106, 0.65)',
-                borderColor: '#66bb6a',
-                borderWidth: 1
-            }]
-        },
-        options: {
-            indexAxis: 'y',
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label: ctx => ` ${ctx.raw >= 0 ? '+' : ''}${ctx.raw.toFixed(6)}`
-                    }
-                }
-            },
-            scales: {
-                x: { beginAtZero: false }
-            }
-        }
-    });
 }

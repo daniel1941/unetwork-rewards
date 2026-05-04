@@ -4,259 +4,195 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Unity Rewards Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
-        <header class="header">
-            <img class="unity-logo" src="https://unitynodes.io/images/Unity-Icon_1.png" alt="Unity" />
-            <div class="dashboard-controls">
-                <label for="date-filter" class="control-label">Date Range:</label>
-                <select id="date-filter" class="card-control">
-                    <option value="current_week">Current Week</option>
-                    <option value="last_week">Last Week</option>
-                    <option value="current_month" selected>Current Month</option>
-                    <option value="last_month">Last Month</option>
-                    <option value="last_3_months">Last 3 Months</option>
-                </select>
-            </div>
-            <div id="summary-strip" class="summary-strip">
-                <div class="summary-item">
-                    <span class="summary-label">Daily Average</span>
-                    <span id="summary-daily-average">-</span>
-                </div>
-                <div class="summary-item">
-                    <span class="summary-label">Total</span>
-                    <span id="summary-total">-</span>
-                </div>
-                <div class="summary-item">
-                    <span class="summary-label">Last 7 Days</span>
-                    <span id="summary-last7">-</span>
-                </div>
-                <div class="summary-item">
-                    <span class="summary-label">This Week</span>
-                    <span id="summary-week">-</span>
-                </div>
-                <div class="summary-item">
-                    <span class="summary-label">Today</span>
-                    <span id="summary-today">-</span>
-                </div>
-                <div class="summary-item">
-                    <span class="summary-label">Redeemable</span>
-                    <span id="summary-redeemable">-</span>
-                </div>
-            </div>
-            <div class="wallet-menu" id="wallet-menu">
-                <button id="auth-status" class="status-badge" type="button">Checking Auth...</button>
-                <button id="logout-btn" class="logout-btn" type="button" title="Logout">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-                        <polyline points="16 17 21 12 16 7"/>
-                        <line x1="21" y1="12" x2="9" y2="12"/>
-                    </svg>
-                </button>
-            </div>
-        </header>
 
-        <!-- Auth Section -->
-        <section id="auth-section" class="auth-card">
-            <div class="auth-container">
-                <div class="auth-header">
-                    <h1>Unity Rewards Dashboard</h1>
-                    <p class="auth-subtitle">Secure Web3 Authentication</p>
-                </div>
+    <header class="header">
+        <img class="unity-logo" src="https://unitynodes.io/images/Unity-Icon_1.png" alt="Unity" />
+        <span class="header-title">Unity Rewards</span>
+        <div class="date-filter-group">
+            <button type="button" class="date-filter-btn" data-filter="current_week">CW</button>
+            <button type="button" class="date-filter-btn" data-filter="last_week">LW</button>
+            <button type="button" class="date-filter-btn active" data-filter="current_month">CM</button>
+            <button type="button" class="date-filter-btn" data-filter="last_month">LM</button>
+            <button type="button" class="date-filter-btn" data-filter="last_3_months">3M</button>
+        </div>
+        <select id="date-filter" style="display:none">
+            <option value="current_week">Current Week</option>
+            <option value="last_week">Last Week</option>
+            <option value="current_month" selected>Current Month</option>
+            <option value="last_month">Last Month</option>
+            <option value="last_3_months">Last 3 Months</option>
+        </select>
 
-                <form id="token-form" class="auth-form">
-                    <!-- License Configuration Section -->
-                    <div class="auth-section-box">
-                        <h3 class="section-title">Configuration</h3>
-                        <div class="form-group">
-                            <label for="license-file-input" class="form-label">License Aliases (Optional)</label>
-                            <div class="file-input-wrapper">
-                                <input type="file" id="license-file-input" accept="application/json" class="file-input">
-                                <span class="file-input-label">Choose File</span>
-                            </div>
-                            <p class="form-hint">Upload an array of { "licenseId": "...", "alias": "..." } or { "licenseId": "...", "deviceName": "..." }</p>
-                            <div id="license-file-status" class="text-muted">No file selected; showing license IDs as ...XXXX.</div>
-                        </div>
-                        <button type="submit" class="btn btn-primary btn-block">Save Configuration</button>
-                    </div>
+        <div class="filter-dropdown" id="group-filter-dropdown">
+            <button class="filter-dropdown-btn" type="button" id="group-dropdown-trigger" disabled>
+                Group
+                <span class="filter-dropdown-count" id="group-count"></span>
+                <span class="filter-dropdown-arrow">▾</span>
+            </button>
+            <div class="filter-dropdown-panel" id="group-dropdown-panel"></div>
+        </div>
 
-                    <!-- Web3 Login Section -->
-                    <div class="auth-section-box">
-                        <h3 class="section-title">Web3 Login</h3>
-                        <div class="web3-info">
-                            <p class="web3-description">Connect your MetaMask wallet to access your rewards data securely.</p>
-                            <div id="web3-status" class="web3-status">Wallet not connected.</div>
-                        </div>
-                        <div class="web3-actions">
-                            <button type="button" class="btn btn-primary" id="web3-connect-btn">Connect MetaMask</button>
-                            <button type="button" class="btn btn-success" id="web3-login-btn" disabled>Sign &amp; Login</button>
-                            <button type="button" class="btn btn-secondary" id="web3-disconnect-btn" disabled>Disconnect</button>
-                        </div>
-                    </div>
-                </form>
+        <div class="filter-dropdown" id="licenses-filter-dropdown">
+            <button class="filter-dropdown-btn" type="button" id="licenses-dropdown-trigger">
+                Licenses
+                <span class="filter-dropdown-count" id="licenses-count"></span>
+                <span class="filter-dropdown-arrow">▾</span>
+            </button>
+            <div class="filter-dropdown-panel" id="licenses-dropdown-panel"></div>
+        </div>
 
-                <div class="auth-footer">
-                    <p>By logging in, you agree to our <a href="#" class="footer-link">Terms of Service</a></p>
-                </div>
-            </div>
-        </section>
+        <button id="theme-toggle" class="theme-toggle-btn" type="button" title="Toggle light/dark theme">◑</button>
+        <div class="wallet-menu" id="wallet-menu">
+            <button id="auth-status" class="status-badge" type="button">Checking...</button>
+            <button id="logout-btn" class="logout-btn" type="button" title="Logout">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                    <polyline points="16 17 21 12 16 7"/>
+                    <line x1="21" y1="12" x2="9" y2="12"/>
+                </svg>
+            </button>
+        </div>
+    </header>
 
-        <!-- Dashboard Content (Hidden until auth) -->
-        <main id="dashboard-content" style="display: none;">
-
-            <!-- Summary Cards -->
-            <div class="summary-grid">
-            </div>
-
-            <!-- Charts -->
-            <div class="charts-grid">
-                <div class="card" data-expandable="true">
-                    <div class="card-header">
-                        <div class="card-title">
-                            <h3>Daily Total <span class="tooltip" title="Sum of rewards for all devices on each UTC day">ℹ️</span></h3>
-                            <button type="button" class="card-expand-btn" aria-label="Expand card" title="Expand card">
-                                <span aria-hidden="true">⤢</span>
-                            </button>
-                        </div>
-                    </div>
-                    <canvas id="dailyChart" style="max-height: 300px;"></canvas>
-                </div>
-                <div class="card" data-expandable="true">
-                    <div class="card-header">
-                        <div class="card-title">
-                            <h3>Average Amount per License <span class="tooltip" title="Average of daily totals for each license (Total Rewards / Days Active)">ℹ️</span></h3>
-                            <button type="button" class="card-expand-btn" aria-label="Expand card" title="Expand card">
-                                <span aria-hidden="true">⤢</span>
-                            </button>
-                        </div>
-                    </div>
-                    <canvas id="deviceChart" style="max-height: 300px;"></canvas>
-                </div>
-                <div class="card" data-expandable="true">
-                    <div class="card-header">
-                        <div class="card-title">
-                            <h3>Rewards Normal Distribution <span class="tooltip" title="Gaussian fit of total rewards per license">ℹ️</span></h3>
-                            <button type="button" class="card-expand-btn" aria-label="Expand card" title="Expand card">
-                                <span aria-hidden="true">⤢</span>
-                            </button>
-                        </div>
-                    </div>
-                    <canvas id="distributionChart" style="max-height: 300px;"></canvas>
-                </div>
-                <div class="card" data-expandable="true">
-                    <div class="card-header">
-                        <div class="card-title">
-                            <h3>Daily Average by Group <span class="tooltip" title="Average rewards per allocation for each device per day">ℹ️</span></h3>
-                            <button type="button" class="card-expand-btn" aria-label="Expand card" title="Expand card">
-                                <span aria-hidden="true">⤢</span>
-                            </button>
-                        </div>
-                        <select id="dailyAvgGroupFilter" class="card-control">
-                            <option value="all">All Devices</option>
-                        </select>
-                    </div>
-                    <canvas id="dailyAvgByDeviceChart" style="max-height: 300px;"></canvas>
-                </div>
-            </div>
-
-            <!-- Daily Movers -->
-            <div class="card" data-expandable="true">
-                <div class="card-header">
-                    <div class="card-title">
-                        <h3>Daily Movers <span class="tooltip" title="Top 5 biggest gainers and losers in daily rewards between the two most recent dates">ℹ️</span></h3>
-                        <button type="button" class="card-expand-btn" aria-label="Expand card" title="Expand card">
-                            <span aria-hidden="true">⤢</span>
-                        </button>
-                    </div>
-                </div>
-                <div class="movers-panels">
-                    <div class="movers-panel">
-                        <h4 class="movers-panel-title losers-title">Biggest Losers</h4>
-                        <canvas id="losersChart" style="max-height: 250px;"></canvas>
-                    </div>
-                    <div class="movers-panel">
-                        <h4 class="movers-panel-title gainers-title">Biggest Gainers</h4>
-                        <canvas id="gainersChart" style="max-height: 250px;"></canvas>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Single Device Chart -->
-            <div class="card" data-expandable="true">
-                <div class="card-header">
-                    <div class="card-title">
-                        <h3>Daily Average by License <span class="tooltip" title="Daily total rewards for the selected device">ℹ️</span></h3>
-                        <button type="button" class="card-expand-btn" aria-label="Expand card" title="Expand card">
-                            <span aria-hidden="true">⤢</span>
-                        </button>
-                    </div>
-                    <select id="device-select" class="card-control">
-                        <option value="">Select License ID</option>
-                    </select>
-                </div>
-                <canvas id="singleDeviceChart" style="max-height: 300px;"></canvas>
-            </div>
-
-            <!-- Tables -->
-            <div class="card" data-expandable="true">
-                <div class="card-header">
-                    <div class="card-title">
-                        <h3>Daily Breakdown <span class="tooltip" title="Detailed list of daily totals per device">ℹ️</span></h3>
-                        <button type="button" class="card-expand-btn" aria-label="Expand card" title="Expand card">
-                            <span aria-hidden="true">⤢</span>
-                        </button>
-                    </div>
-                    <select id="table-device-filter" class="card-control">
-                        <option value="all">All License IDs</option>
-                    </select>
-                </div>
-                <div class="table-wrapper">
-                    <table id="daily-table">
-                        <thead>
-                            <tr>
-                                <th>
-                                    <button type="button" class="sort-button" data-sort-key="date">
-                                        <span>Date (UTC)</span>
-                                    </button>
-                                </th>
-                                <th>
-                                    <button type="button" class="sort-button" data-sort-key="license">
-                                        <span>License ID</span>
-                                    </button>
-                                </th>
-                                <th>
-                                    <button type="button" class="sort-button" data-sort-key="count">
-                                        <span>Count</span>
-                                    </button>
-                                </th>
-                                <th>
-                                    <button type="button" class="sort-button" data-sort-key="totalAmount">
-                                        <span>Total Amount</span>
-                                    </button>
-                                </th>
-                                <th>
-                                    <button type="button" class="sort-button" data-sort-key="averageAmount">
-                                        <span>Avg Amount</span>
-                                    </button>
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>
-                </div>
-            </div>
-        </main>
+    <div id="summary-strip" class="summary-strip">
+        <div class="summary-item">
+            <span class="summary-label">Daily Avg</span>
+            <span class="summary-value" id="summary-daily-average">-</span>
+        </div>
+        <div class="summary-item">
+            <span class="summary-label">Total</span>
+            <span class="summary-value" id="summary-total">-</span>
+        </div>
+        <div class="summary-item">
+            <span class="summary-label">Last 7D</span>
+            <span class="summary-value" id="summary-last7">-</span>
+        </div>
+        <div class="summary-item">
+            <span class="summary-label">This Week</span>
+            <span class="summary-value" id="summary-week">-</span>
+        </div>
+        <div class="summary-item">
+            <span class="summary-label">Today</span>
+            <span class="summary-value" id="summary-today">-</span>
+        </div>
+        <div class="summary-item">
+            <span class="summary-label">Redeemable</span>
+            <span class="summary-value" id="summary-redeemable">-</span>
+        </div>
     </div>
+
+    <main id="dashboard-content" style="display:none">
+        <div class="charts-grid">
+
+            <div class="card" data-expandable="true">
+                <div class="card-header">
+                    <div class="card-title"><h3>Daily Total</h3></div>
+                    <button type="button" class="card-expand-btn" aria-label="Expand card">⤢</button>
+                </div>
+                <canvas id="totalAmountChart"></canvas>
+            </div>
+
+            <div class="card" data-expandable="true">
+                <div class="card-header">
+                    <div class="card-title"><h3>Daily Average</h3></div>
+                    <button type="button" class="card-expand-btn" aria-label="Expand card">⤢</button>
+                </div>
+                <canvas id="averageChart"></canvas>
+            </div>
+
+        </div>
+
+        <!-- Table Panel -->
+        <div class="card table-panel" data-expandable="true">
+            <div class="card-header">
+                <div class="card-title"><h3>Daily Breakdown</h3></div>
+                <button type="button" class="card-expand-btn" aria-label="Expand card">⤢</button>
+            </div>
+            <div class="table-wrapper">
+                <table id="daily-table">
+                    <colgroup>
+                        <col class="col-date">
+                        <col class="col-license">
+                        <col class="col-count">
+                        <col class="col-total">
+                        <col class="col-avg">
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th><button type="button" class="sort-button" data-sort-key="date"><span>Date UTC</span></button></th>
+                            <th><button type="button" class="sort-button" data-sort-key="license"><span>License</span></button></th>
+                            <th><button type="button" class="sort-button" data-sort-key="count"><span>Cnt</span></button></th>
+                            <th><button type="button" class="sort-button" data-sort-key="totalAmount"><span>Total</span></button></th>
+                            <th><button type="button" class="sort-button" data-sort-key="averageAmount"><span>Avg</span></button></th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <footer class="status-bar">
+        <span class="status-bar-item" id="last-updated">AWAITING DATA</span>
+        <span class="status-bar-item" id="next-refresh">—</span>
+        <span class="status-bar-item" id="row-count">—</span>
+    </footer>
+
+    <!-- Auth Screen -->
+    <section id="auth-section" class="auth-overlay">
+        <div class="auth-terminal">
+            <div class="auth-terminal-header">
+                <span>Unity Rewards Dashboard — Authentication Required</span>
+                <button class="theme-toggle-btn" type="button" title="Toggle light/dark theme">◑</button>
+            </div>
+            <form id="token-form" class="auth-terminal-body">
+                <div class="auth-section-box">
+                    <h3 class="section-title">Configuration</h3>
+                    <div class="form-group">
+                        <label for="license-file-input" class="form-label">Group Mappings (Optional)</label>
+                        <div class="file-input-wrapper">
+                            <input type="file" id="license-file-input" accept="application/json" class="file-input">
+                            <span class="file-input-label">Choose File</span>
+                        </div>
+                        <p class="form-hint">Upload an array of { "id": "0x...", "group": "..." } to assign licenses to groups</p>
+                        <div id="license-file-status" class="text-muted">No group mapping file selected.</div>
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">Save Configuration</button>
+                </div>
+                <hr class="auth-terminal-divider">
+                <div class="auth-section-box">
+                    <h3 class="section-title">Web3 Login</h3>
+                    <div class="web3-info">
+                        <p class="web3-description">Connect your MetaMask wallet to authenticate.</p>
+                        <div id="web3-status" class="web3-status">Wallet not connected.</div>
+                    </div>
+                    <div class="web3-actions">
+                        <button type="button" class="btn btn-primary" id="web3-connect-btn">Connect MetaMask</button>
+                        <button type="button" class="btn btn-success" id="web3-login-btn" disabled>Sign &amp; Login</button>
+                        <button type="button" class="btn btn-secondary" id="web3-disconnect-btn" disabled>Disconnect</button>
+                    </div>
+                </div>
+            </form>
+            <div class="auth-footer">
+                <p>By logging in you agree to our <a href="https://unitynodes.io/terms-and-conditions.html" class="footer-link">Terms of Service</a></p>
+            </div>
+        </div>
+    </section>
 
     <div id="card-overlay" class="card-overlay" aria-hidden="true">
         <div class="card-overlay-content" role="dialog" aria-modal="true">
-            <button id="card-overlay-close" class="card-overlay-close" type="button" aria-label="Close expanded card">&times;</button>
+            <button id="card-overlay-close" class="card-overlay-close" type="button" aria-label="Close expanded card">×</button>
             <div id="card-overlay-body" class="card-overlay-body"></div>
         </div>
     </div>
+
     <script src="config.js"></script>
     <script type="module" src="app.js"></script>
 </body>
