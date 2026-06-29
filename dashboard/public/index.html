@@ -156,21 +156,7 @@
                 <span>Unity Rewards Dashboard — Authentication Required</span>
                 <button class="theme-toggle-btn" type="button" title="Toggle light/dark theme">◑</button>
             </div>
-            <form id="token-form" class="auth-terminal-body">
-                <div class="auth-section-box">
-                    <h3 class="section-title">Configuration</h3>
-                    <div class="form-group">
-                        <label for="license-file-input" class="form-label">Group Mappings (Optional)</label>
-                        <div class="file-input-wrapper">
-                            <input type="file" id="license-file-input" accept="application/json" class="file-input">
-                            <span class="file-input-label">Choose File</span>
-                        </div>
-                        <p class="form-hint">Upload an array of { "id": "0x...", "group": "..." } to assign licenses to groups</p>
-                        <div id="license-file-status" class="text-muted">No group mapping file selected.</div>
-                    </div>
-                    <button type="submit" class="btn btn-primary btn-block">Save Configuration</button>
-                </div>
-                <hr class="auth-terminal-divider">
+            <div class="auth-terminal-body">
                 <div class="auth-section-box">
                     <h3 class="section-title">Web3 Login</h3>
                     <div class="web3-info">
@@ -183,7 +169,7 @@
                         <button type="button" class="btn btn-secondary" id="web3-disconnect-btn" disabled>Disconnect</button>
                     </div>
                 </div>
-            </form>
+            </div>
             <div class="auth-footer">
                 <p>By logging in you agree to our <a href="https://unitynodes.io/terms-and-conditions.html" class="footer-link">Terms of Service</a></p>
             </div>
