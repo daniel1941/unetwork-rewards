@@ -8,6 +8,7 @@ const SUPABASE_URL = UNITY_CONFIG.SUPABASE_URL || "https://vtllpagtmncbkywsqccd.
 const SUMMARY_URL = UNITY_CONFIG.SUMMARY_URL || "https://vtllpagtmncbkywsqccd.supabase.co/rest/v1/rpc/rewards_get_allocations_summary?limit=1";
 const BALANCE_URL = UNITY_CONFIG.BALANCE_URL || "https://vtllpagtmncbkywsqccd.supabase.co/rest/v1/rpc/rewards_get_balance";
 const LICENSES_URL = UNITY_CONFIG.LICENSES_URL || "https://api.unityedge.io/functions/v1/licenses_get_licenses";
+const LICENSE_GROUPS_URL = UNITY_CONFIG.LICENSE_GROUPS_URL || "https://api.unityedge.io/functions/v1/license_groups_get_all";
 const LICENSE_ANALYTICS_URL = UNITY_CONFIG.LICENSE_ANALYTICS_URL || "https://api.unityedge.io/rest/v1/rpc/license_analytics_get_by_license";
 const API_KEY = UNITY_CONFIG.API_KEY || "";
 const TOKEN_URL = UNITY_CONFIG.TOKEN_URL || "https://api.unityedge.io/auth/v1/token?grant_type=web3";
@@ -124,14 +125,10 @@ const debugExpiresAt = document.getElementById('debug-expires-at');
 const debugNextRefresh = document.getElementById('debug-next-refresh');
 const authSection = document.getElementById('auth-section');
 const dashboardContent = document.getElementById('dashboard-content');
-const tokenForm = document.getElementById('token-form');
-const tokenInput = document.getElementById('token-input');
 const web3ConnectBtn = document.getElementById('web3-connect-btn');
 const web3LoginBtn = document.getElementById('web3-login-btn');
 const web3DisconnectBtn = document.getElementById('web3-disconnect-btn');
 const web3Status = document.getElementById('web3-status');
-const licenseFileInput = document.getElementById('license-file-input');
-const licenseFileStatus = document.getElementById('license-file-status');
 const refreshBtn = document.getElementById('refresh-btn');
 const logoutBtn = document.getElementById('logout-btn');
 const cardOverlay = document.getElementById('card-overlay');
@@ -176,19 +173,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    const savedLicenseData = localStorage.getItem('unity_license_data');
-    if (savedLicenseData) {
-        try {
-            const parsed = JSON.parse(savedLicenseData);
-            if (Array.isArray(parsed)) {
-                const { groupCount } = applyLicenseData(parsed);
-                updateLicenseFileStatus(`Restored ${groupCount} group mappings from saved configuration.`);
-            }
-        } catch (e) {
-            localStorage.removeItem('unity_license_data');
-        }
-    }
-
     checkAuth();
 });
 
@@ -199,17 +183,6 @@ if (dateFilterSelect) {
         if (currentData) {
             renderDashboard(getFilteredData());
         }
-    });
-}
-
-if (licenseFileInput) {
-    licenseFileInput.addEventListener('change', () => {
-        if (!licenseFileInput.files || licenseFileInput.files.length === 0) {
-            updateLicenseFileStatus('No file selected; license IDs will be shown.');
-            return;
-        }
-        const file = licenseFileInput.files[0];
-        updateLicenseFileStatus(`Selected ${file.name}. File will be loaded when you save the configuration.`);
     });
 }
 
@@ -225,34 +198,6 @@ if (web3DisconnectBtn) {
     web3DisconnectBtn.addEventListener('click', disconnectWallet);
 }
 
-tokenForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
-
-    try {
-        await loadLicenseAliasesFromInput();
-    } catch (err) {
-        alert('Invalid license alias file: ' + err.message);
-        return;
-    }
-
-    if (!tokenInput) {
-        updateLicenseFileStatus('Aliases updated. Use Web3 login to authenticate.');
-        return;
-    }
-
-    const token = tokenInput.value.trim();
-    if (!token) {
-        updateLicenseFileStatus('Aliases updated. Use Web3 login to authenticate.');
-        return;
-    }
-
-    sessionStorage.setItem('unity_rewards_token', token);
-    sessionStorage.removeItem('unity_rewards_refresh_token');
-    sessionStorage.removeItem('unity_rewards_expires_at');
-    sessionStorage.removeItem('unity_rewards_wallet');
-    tokenInput.value = '';
-    checkAuth();
-});
 
 if (refreshBtn) {
     refreshBtn.addEventListener('click', loadData);
@@ -260,12 +205,6 @@ if (refreshBtn) {
 logoutBtn.addEventListener('click', logout);
 
 // Functions
-function updateLicenseFileStatus(message) {
-    if (licenseFileStatus) {
-        licenseFileStatus.textContent = message;
-    }
-}
-
 function getFilteredData() {
     if (!currentData) return null;
     return filterDataByDateRange(currentData, currentDateFilter);
@@ -570,6 +509,33 @@ async function loadLicenses() {
     }
 }
 
+async function loadGroups() {
+    try {
+        const { response } = await fetchWithAuth(LICENSE_GROUPS_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+        });
+        if (!response || !response.ok) return;
+        const groups = await response.json();
+        if (!Array.isArray(groups)) return;
+
+        const groupMap = new Map();
+        for (const group of groups) {
+            for (const licenseId of (group.licenseIds || [])) {
+                groupMap.set(licenseId, group.name);
+            }
+        }
+        licenseGroupMap = groupMap;
+        availableGroups = groups.map(g => g.name).sort();
+        buildGroupDropdown();
+
+        if (currentData) rerenderCharts();
+    } catch (err) {
+        console.error('Failed to load groups:', err);
+    }
+}
+
 async function loadLicenseAnalytics() {
     const licenseIds = [...licenseAliasMap.keys()];
     if (licenseIds.length === 0) return;
@@ -721,68 +687,6 @@ async function loginWithWallet() {
     }
 }
 
-function applyLicenseData(parsed) {
-    const groupMap = new Map();
-    const groupsSet = new Set();
-
-    parsed.forEach((entry) => {
-        if (!entry || typeof entry !== 'object') return;
-        const licenseId = (typeof entry.id === 'string' ? entry.id.trim() : null)
-            || (typeof entry.licenseId === 'string' ? entry.licenseId.trim() : null);
-        const group = typeof entry.group === 'string' && entry.group.trim() ? entry.group.trim() : null;
-
-        if (licenseId && group) {
-            groupMap.set(licenseId, group);
-            groupsSet.add(group);
-        }
-    });
-
-    licenseGroupMap = groupMap;
-    availableGroups = Array.from(groupsSet).sort();
-    return { groupCount: groupMap.size };
-}
-
-async function loadLicenseAliasesFromInput() {
-    if (!licenseFileInput || !licenseFileInput.files || licenseFileInput.files.length === 0) {
-        licenseAliasMap = new Map();
-        licenseUptimeMap = new Map();
-        licenseGroupMap = new Map();
-        availableGroups = [];
-        selectedGroups.clear();
-        selectedLicenses.clear();
-        localStorage.removeItem('unity_license_data');
-        updateLicenseFileStatus('No group mapping file selected.');
-        buildGroupDropdown();
-        buildLicensesDropdown();
-        return;
-    }
-
-    const file = licenseFileInput.files[0];
-    const text = await file.text();
-    let parsed;
-    try {
-        parsed = JSON.parse(text);
-    } catch (err) {
-        throw new Error('File is not valid JSON.');
-    }
-
-    if (!Array.isArray(parsed)) {
-        throw new Error('JSON must be an array.');
-    }
-
-    const { groupCount } = applyLicenseData(parsed);
-    localStorage.setItem('unity_license_data', JSON.stringify(parsed));
-    selectedGroups.clear();
-    selectedLicenses.clear();
-    buildGroupDropdown();
-    buildLicensesDropdown();
-
-    if (groupCount === 0) {
-        updateLicenseFileStatus(`${file.name}: no group mappings found.`);
-    } else {
-        updateLicenseFileStatus(`Loaded ${groupCount} group mappings from ${file.name}.`);
-    }
-}
 
 function resolveLicenseAlias(licenseId) {
     if (licenseAliasMap.has(licenseId)) {
@@ -992,6 +896,7 @@ function checkAuth() {
         authSection.style.display = 'none';
         dashboardContent.style.display = 'grid';
         loadLicenses();
+        loadGroups();
         loadData();
         loadSummary();
         loadBalance();
@@ -1025,7 +930,6 @@ function checkAuth() {
 function logout() {
     if (confirm('Are you sure you want to logout? This will clear your session token.')) {
         sessionStorage.clear();
-        localStorage.removeItem('unity_license_data');
         currentData = null;
         rawAllocations = null;
         licenseAliasMap = new Map();
@@ -1037,10 +941,6 @@ function logout() {
         web3Signature = '';
         web3Account = '';
         stopAutoRefresh();
-        if (licenseFileInput) {
-            licenseFileInput.value = '';
-        }
-        updateLicenseFileStatus('No group mapping file selected.');
         buildGroupDropdown();
         buildLicensesDropdown();
         checkAuth();
