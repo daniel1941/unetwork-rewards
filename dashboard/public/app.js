@@ -742,6 +742,25 @@ function buildGroupDropdown() {
         return;
     }
 
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'filter-dropdown-clear';
+    clearBtn.textContent = 'Clear all';
+    clearBtn.style.display = selectedGroups.size > 0 ? '' : 'none';
+    clearBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        selectedGroups.clear();
+        const available = new Set(getFilteredLicenses());
+        for (const lic of [...selectedLicenses]) {
+            if (!available.has(lic)) selectedLicenses.delete(lic);
+        }
+        updateFilterCount('group-count', 0);
+        buildGroupDropdown();
+        buildLicensesDropdown();
+        rerenderCharts();
+    });
+    panel.appendChild(clearBtn);
+
     availableGroups.forEach(group => {
         const item = document.createElement('label');
         item.className = 'filter-dropdown-item';
@@ -1307,6 +1326,17 @@ function renderTotalAmountChart(summaries) {
     const ctx = canvas.getContext('2d');
 
     if (charts.totalAmount) charts.totalAmount.destroy();
+
+    const totalSumEl = document.getElementById('total-amount-sum');
+    if (totalSumEl) {
+        if (!summaries || summaries.length === 0) {
+            totalSumEl.textContent = '';
+        } else {
+            const grandTotal = summaries.reduce((sum, s) => sum + s.totalAmount, 0);
+            totalSumEl.textContent = grandTotal.toFixed(3);
+        }
+    }
+
     if (!summaries || summaries.length === 0) return;
 
     const dates = [...new Set(summaries.map(s => s.date))].sort();
