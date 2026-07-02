@@ -260,6 +260,15 @@ header.header {
     margin: 0;
 }
 
+.card-title-stat {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    margin-left: 8px;
+    opacity: 0.8;
+}
+
 .card-expand-btn {
     background: transparent;
     border: none;
@@ -796,6 +805,11 @@ body.light {
     --red:            #880022;
 }
 
+body.light .card-title-stat {
+    color: var(--text-primary);
+    opacity: 1;
+}
+
 body.light .status-bar {
     background: #ebe6d8;
 }
@@ -963,6 +977,25 @@ body.light .status-badge.missing {
 
 body.light .filter-dropdown-item:hover {
     background: #ede8da;
+}
+
+.filter-dropdown-clear {
+    display: block;
+    width: 100%;
+    padding: 5px 10px;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    color: var(--amber);
+    font: inherit;
+    font-size: 11px;
+    text-align: left;
+    cursor: pointer;
+    letter-spacing: 0.05em;
+}
+
+.filter-dropdown-clear:hover {
+    background: var(--border);
 }
 
 /* ── MISC ────────────────────────────────────────────────── */
