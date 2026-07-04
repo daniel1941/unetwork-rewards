@@ -24,7 +24,7 @@ let currentData = null;
 let expandedCardContext = null;
 let tableSortState = { key: 'date', direction: 'desc' };
 let licenseAliasMap = new Map();
-let licenseGroupMap = new Map();
+let licenseGroupMap = new Map(); // Map<licenseId, Set<groupName>> — a license can belong to more than one group
 let licenseUptimeMap = new Map(); // Map<licenseId, uptime 0–1> from LICENSES_URL
 let licenseSearchQuery = '';
 let licenseAnalyticsMap = new Map(); // Map<licenseId, Map<date, uptime 0–1>>
@@ -210,13 +210,22 @@ function getFilteredData() {
     return filterDataByDateRange(currentData, currentDateFilter);
 }
 
+function licenseInSelectedGroups(licenseId) {
+    const groups = licenseGroupMap.get(licenseId);
+    if (!groups) return false;
+    for (const g of selectedGroups) {
+        if (groups.has(g)) return true;
+    }
+    return false;
+}
+
 function getGlobalFilteredSummaries() {
     const filtered = getFilteredData();
     if (!filtered) return [];
     let summaries = filtered.summaries;
 
     if (selectedGroups.size > 0) {
-        summaries = summaries.filter(s => selectedGroups.has(licenseGroupMap.get(s.licenseId)));
+        summaries = summaries.filter(s => licenseInSelectedGroups(s.licenseId));
     }
     if (selectedLicenses.size > 0) {
         summaries = summaries.filter(s => selectedLicenses.has(resolveLicenseAlias(s.licenseId)));
@@ -230,7 +239,7 @@ function getAvailableLicenses() {
     let summaries = filtered.summaries;
 
     if (selectedGroups.size > 0) {
-        summaries = summaries.filter(s => selectedGroups.has(licenseGroupMap.get(s.licenseId)));
+        summaries = summaries.filter(s => licenseInSelectedGroups(s.licenseId));
     }
 
     return [...new Set(summaries.map(s => resolveLicenseAlias(s.licenseId)))].sort();
@@ -240,7 +249,7 @@ function getFilteredLicenses() {
     if (licenseAliasMap.size > 0) {
         let entries = [...licenseAliasMap.entries()];
         if (selectedGroups.size > 0 && licenseGroupMap.size > 0) {
-            entries = entries.filter(([id]) => selectedGroups.has(licenseGroupMap.get(id)));
+            entries = entries.filter(([id]) => licenseInSelectedGroups(id));
         }
         return [...new Set(entries.map(([, alias]) => alias))].sort();
     }
@@ -251,7 +260,7 @@ function getFilteredLicenseEntries() {
     if (licenseAliasMap.size > 0) {
         let entries = [...licenseAliasMap.entries()];
         if (selectedGroups.size > 0 && licenseGroupMap.size > 0) {
-            entries = entries.filter(([id]) => selectedGroups.has(licenseGroupMap.get(id)));
+            entries = entries.filter(([id]) => licenseInSelectedGroups(id));
         }
         const seen = new Map();
         for (const [id, alias] of entries) {
@@ -523,7 +532,8 @@ async function loadGroups() {
         const groupMap = new Map();
         for (const group of groups) {
             for (const licenseId of (group.licenseIds || [])) {
-                groupMap.set(licenseId, group.name);
+                if (!groupMap.has(licenseId)) groupMap.set(licenseId, new Set());
+                groupMap.get(licenseId).add(group.name);
             }
         }
         licenseGroupMap = groupMap;
@@ -1348,7 +1358,7 @@ function renderTotalAmountChart(summaries) {
             const color = getSeriesColor(i);
             const byDate = new Map();
             summaries
-                .filter(s => licenseGroupMap.get(s.licenseId) === group)
+                .filter(s => licenseGroupMap.get(s.licenseId)?.has(group))
                 .forEach(s => byDate.set(s.date, (byDate.get(s.date) || 0) + s.totalAmount));
             return {
                 label: group,
