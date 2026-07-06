@@ -48,15 +48,6 @@ header.header {
     z-index: 100;
 }
 
-.unity-logo {
-    height: 20px;
-    width: auto;
-    display: block;
-    opacity: 0.7;
-    filter: grayscale(1);
-    flex-shrink: 0;
-}
-
 .header-title {
     font-size: 13px;
     font-weight: 600;
@@ -272,17 +263,32 @@ header.header {
 .card-toggle {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     font-size: 11px;
-    color: var(--text-dim);
+    color: var(--text-secondary);
     white-space: nowrap;
     flex-shrink: 0;
     cursor: pointer;
     user-select: none;
 }
 
+.card-toggle:hover {
+    color: var(--text-primary);
+}
+
+.card-toggle:has(input:checked) {
+    color: var(--amber);
+}
+
 .card-toggle input[type="checkbox"] {
     cursor: pointer;
+    accent-color: var(--amber);
+    flex-shrink: 0;
+}
+
+.card-toggle input[type="checkbox"]:focus-visible {
+    outline: 1px solid var(--amber);
+    outline-offset: 1px;
 }
 
 .card-expand-btn {
