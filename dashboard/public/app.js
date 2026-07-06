@@ -30,6 +30,8 @@ let licenseSearchQuery = '';
 let licenseAnalyticsMap = new Map(); // Map<licenseId, Map<date, uptime 0–1>>
 let availableGroups = [];
 let selectedGroups = new Set();
+let totalChartCumulative = false;
+let averageChartCumulative = false;
 let selectedLicenses = new Set();
 let selectedTasks = new Set();
 let web3Account = '';
@@ -170,6 +172,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initFilterDropdowns();
     initializeCardExpansion();
     initializeTableSorting();
+    initializeCumulativeToggles();
     updateWeb3Ui();
     if (!DEBUG_INFO) {
         const debugElement = document.getElementById('token-debug');
@@ -773,6 +776,7 @@ function buildGroupDropdown() {
 
     if (!hasGroups) {
         updateFilterCount('group-count', 0);
+        syncCumulativeToggles();
         return;
     }
 
@@ -814,6 +818,7 @@ function buildGroupDropdown() {
             }
 
             updateFilterCount('group-count', selectedGroups.size);
+            syncCumulativeToggles();
             refreshGroupDisabledState();
             buildLicensesDropdown();
             buildTaskDropdown();
@@ -825,6 +830,7 @@ function buildGroupDropdown() {
     });
 
     updateFilterCount('group-count', selectedGroups.size);
+    syncCumulativeToggles();
     refreshGroupDisabledState();
 }
 
@@ -1049,6 +1055,8 @@ function logout() {
         selectedGroups.clear();
         selectedLicenses.clear();
         selectedTasks.clear();
+        totalChartCumulative = false;
+        averageChartCumulative = false;
         web3Signature = '';
         web3Account = '';
         stopAutoRefresh();
@@ -1091,6 +1099,42 @@ function initializeCardExpansion() {
             closeCardOverlay();
         }
     });
+}
+
+function initializeCumulativeToggles() {
+    const totalToggle = document.getElementById('total-cumulative-toggle');
+    const averageToggle = document.getElementById('average-cumulative-toggle');
+
+    if (totalToggle) {
+        totalToggle.addEventListener('change', () => {
+            totalChartCumulative = totalToggle.checked;
+            rerenderCharts();
+        });
+    }
+
+    if (averageToggle) {
+        averageToggle.addEventListener('change', () => {
+            averageChartCumulative = averageToggle.checked;
+            rerenderCharts();
+        });
+    }
+}
+
+function syncCumulativeToggles() {
+    const showToggle = selectedGroups.size > 1;
+
+    const totalWrap = document.getElementById('total-cumulative-toggle-wrap');
+    if (totalWrap) totalWrap.style.display = showToggle ? '' : 'none';
+
+    const averageWrap = document.getElementById('average-cumulative-toggle-wrap');
+    if (averageWrap) averageWrap.style.display = showToggle ? '' : 'none';
+
+    if (!showToggle) {
+        totalChartCumulative = false;
+        averageChartCumulative = false;
+        if (totalWrap) totalWrap.querySelector('input').checked = false;
+        if (averageWrap) averageWrap.querySelector('input').checked = false;
+    }
 }
 
 function initializeTableSorting() {
@@ -1426,12 +1470,13 @@ function renderTotalAmountChart(summaries) {
 
     const totalSumEl = document.getElementById('total-amount-sum');
     const activeGroups = [...selectedGroups];
+    const splitByGroup = activeGroups.length > 0 && !(activeGroups.length > 1 && totalChartCumulative);
 
     if (totalSumEl) {
         totalSumEl.innerHTML = '';
         if (!summaries || summaries.length === 0) {
             // leave empty
-        } else if (activeGroups.length > 0) {
+        } else if (splitByGroup) {
             activeGroups.forEach((group, i) => {
                 const groupTotal = summaries
                     .filter(s => licenseGroupMap.get(s.licenseId)?.has(group))
@@ -1453,7 +1498,7 @@ function renderTotalAmountChart(summaries) {
     const dates = [...new Set(summaries.map(s => s.date))].sort();
     let datasets;
 
-    if (activeGroups.length > 0) {
+    if (splitByGroup) {
         datasets = activeGroups.map((group, i) => {
             const color = getSeriesColor(i);
             const byDate = new Map();
@@ -1518,6 +1563,18 @@ function renderTotalAmountChart(summaries) {
     });
 }
 
+function buildDayAggAvg(entries) {
+    const dayAgg = new Map();
+    entries.forEach(s => {
+        if (!dayAgg.has(s.date)) dayAgg.set(s.date, { total: 0, count: 0, licenses: 0 });
+        const d = dayAgg.get(s.date);
+        d.total += s.averageAmount;
+        d.count += s.count;
+        d.licenses += 1;
+    });
+    return dayAgg;
+}
+
 function renderAverageChart(summaries) {
     const canvas = document.getElementById('averageChart');
     if (!canvas) return;
@@ -1528,6 +1585,9 @@ function renderAverageChart(summaries) {
 
     const dates = [...new Set(summaries.map(s => s.date))].sort();
     const activeLicenses = [...selectedLicenses];
+    const activeGroups = [...selectedGroups];
+    const splitByGroup = activeLicenses.length === 0 && activeGroups.length > 0
+        && !(activeGroups.length > 1 && averageChartCumulative);
     let rewardDatasets;
 
     if (activeLicenses.length > 0) {
@@ -1551,15 +1611,31 @@ function renderAverageChart(summaries) {
                 yAxisID: 'y'
             };
         });
-    } else {
-        const dayAgg = new Map();
-        summaries.forEach(s => {
-            if (!dayAgg.has(s.date)) dayAgg.set(s.date, { total: 0, count: 0, licenses: 0 });
-            const d = dayAgg.get(s.date);
-            d.total += s.totalAmount;
-            d.count += s.count;
-            d.licenses += 1;
+    } else if (splitByGroup) {
+        rewardDatasets = activeGroups.map((group, i) => {
+            const color = getSeriesColor(i);
+            const dayAgg = buildDayAggAvg(summaries.filter(s => licenseGroupMap.get(s.licenseId)?.has(group)));
+            const meta = dates.map(d => dayAgg.get(d) || null);
+            return {
+                type: 'line',
+                label: group,
+                _meta: meta,
+                data: dates.map(d => {
+                    const agg = dayAgg.get(d);
+                    return agg && agg.licenses > 0 ? agg.total / agg.licenses : null;
+                }),
+                borderColor: color,
+                backgroundColor: color + '14',
+                tension: 0.1,
+                fill: false,
+                pointRadius: 2,
+                pointHoverRadius: 4,
+                spanGaps: true,
+                yAxisID: 'y'
+            };
         });
+    } else {
+        const dayAgg = buildDayAggAvg(summaries);
         const c0 = getSeriesColor(0);
         const rewardsMeta = dates.map(d => dayAgg.get(d) || null);
         rewardDatasets = [{
