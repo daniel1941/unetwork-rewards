@@ -380,10 +380,11 @@ table {
 
 col.col-date       { width: 12%; }
 col.col-license-id { width: 7%;  }
-col.col-license    { width: 33%; }
-col.col-uptime     { width: 8%;  }
-col.col-count      { width: 8%;  }
-col.col-total      { width: 16%; }
+col.col-license    { width: 24%; }
+col.col-task       { width: 12%; }
+col.col-uptime     { width: 7%;  }
+col.col-count      { width: 7%;  }
+col.col-total      { width: 15%; }
 col.col-avg        { width: 16%; }
 
 thead {
