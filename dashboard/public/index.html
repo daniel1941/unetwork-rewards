@@ -103,6 +103,9 @@
             <div class="card" data-expandable="true">
                 <div class="card-header">
                     <div class="card-title"><h3>Daily Total</h3><span id="total-amount-sum" class="card-title-stat"></span></div>
+                    <label class="card-toggle" id="total-cumulative-toggle-wrap" style="display:none">
+                        <input type="checkbox" id="total-cumulative-toggle"> Cumulative
+                    </label>
                     <button type="button" class="card-expand-btn" aria-label="Expand card">⤢</button>
                 </div>
                 <canvas id="totalAmountChart"></canvas>
@@ -111,6 +114,9 @@
             <div class="card" data-expandable="true">
                 <div class="card-header">
                     <div class="card-title"><h3>Daily Average</h3></div>
+                    <label class="card-toggle" id="average-cumulative-toggle-wrap" style="display:none">
+                        <input type="checkbox" id="average-cumulative-toggle"> Cumulative
+                    </label>
                     <button type="button" class="card-expand-btn" aria-label="Expand card">⤢</button>
                 </div>
                 <canvas id="averageChart"></canvas>

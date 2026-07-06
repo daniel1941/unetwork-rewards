@@ -269,6 +269,22 @@ header.header {
     opacity: 0.8;
 }
 
+.card-toggle {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    color: var(--text-dim);
+    white-space: nowrap;
+    flex-shrink: 0;
+    cursor: pointer;
+    user-select: none;
+}
+
+.card-toggle input[type="checkbox"] {
+    cursor: pointer;
+}
+
 .card-expand-btn {
     background: transparent;
     border: none;
