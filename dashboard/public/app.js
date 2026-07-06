@@ -1425,9 +1425,23 @@ function renderTotalAmountChart(summaries) {
     if (charts.totalAmount) charts.totalAmount.destroy();
 
     const totalSumEl = document.getElementById('total-amount-sum');
+    const activeGroups = [...selectedGroups];
+
     if (totalSumEl) {
+        totalSumEl.innerHTML = '';
         if (!summaries || summaries.length === 0) {
-            totalSumEl.textContent = '';
+            // leave empty
+        } else if (activeGroups.length > 0) {
+            activeGroups.forEach((group, i) => {
+                const groupTotal = summaries
+                    .filter(s => licenseGroupMap.get(s.licenseId)?.has(group))
+                    .reduce((sum, s) => sum + s.totalAmount, 0);
+                const span = document.createElement('span');
+                span.textContent = `${group}: ${groupTotal.toFixed(3)}`;
+                span.style.color = getSeriesColor(i);
+                if (i > 0) span.style.marginLeft = '10px';
+                totalSumEl.appendChild(span);
+            });
         } else {
             const grandTotal = summaries.reduce((sum, s) => sum + s.totalAmount, 0);
             totalSumEl.textContent = grandTotal.toFixed(3);
@@ -1437,7 +1451,6 @@ function renderTotalAmountChart(summaries) {
     if (!summaries || summaries.length === 0) return;
 
     const dates = [...new Set(summaries.map(s => s.date))].sort();
-    const activeGroups = [...selectedGroups];
     let datasets;
 
     if (activeGroups.length > 0) {
