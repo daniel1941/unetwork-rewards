@@ -15,7 +15,6 @@ const TOKEN_URL = UNITY_CONFIG.TOKEN_URL || "https://api.unityedge.io/auth/v1/to
 const CHAIN_ID = UNITY_CONFIG.CHAIN_ID || "";
 const DOMAIN = UNITY_CONFIG.DOMAIN || "unitynodes.io";
 const URI = UNITY_CONFIG.URI || "https://unitynodes.io";
-const TERMS_URL = UNITY_CONFIG.TERMS_URL || "https://unitynodes.io/terms-and-conditions.html";
 const DEBUG_INFO = UNITY_CONFIG.DEBUG_INFO !== undefined ? UNITY_CONFIG.DEBUG_INFO : true;
 
 // State
@@ -41,7 +40,7 @@ let refreshIntervalId = null;
 let currentDateFilter = 'current_month';
 let rawAllocations = null;
 
-const NO_TASK_LABEL = '(none)';
+const NO_TASK_LABEL = 'PoW';
 
 const tableComparators = {
     date: (a, b) => a.date.localeCompare(b.date),
@@ -623,7 +622,7 @@ function updateWeb3Ui(message) {
 
 function buildWeb3Message(walletAddress) {
     const issuedAt = new Date().toISOString();
-    return `${DOMAIN} wants you to sign in with your Ethereum account:\n${walletAddress}\n\nI accept the UnityNodes Terms of Service: ${TERMS_URL}\nURI: ${URI}\nVersion: 1\nChain ID: ${CHAIN_ID}\nIssued At: ${issuedAt}`;
+    return `${DOMAIN} wants you to sign in with your Ethereum account:\n${walletAddress}\n\nURI: ${URI}\nVersion: 1\nChain ID: ${CHAIN_ID}\nIssued At: ${issuedAt}`;
 }
 
 async function connectWallet() {
