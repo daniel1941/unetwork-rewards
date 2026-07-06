@@ -1459,10 +1459,16 @@ function renderTotalAmountChart(summaries) {
             const byDate = new Map();
             summaries
                 .filter(s => licenseGroupMap.get(s.licenseId)?.has(group))
-                .forEach(s => byDate.set(s.date, (byDate.get(s.date) || 0) + s.totalAmount));
+                .forEach(s => {
+                    const entry = byDate.get(s.date) || { total: 0, count: 0 };
+                    entry.total += s.totalAmount;
+                    entry.count += s.count;
+                    byDate.set(s.date, entry);
+                });
             return {
                 label: group,
-                data: dates.map(d => byDate.get(d) || 0),
+                data: dates.map(d => byDate.get(d)?.total || 0),
+                _meta: dates.map(d => byDate.get(d) || { total: 0, count: 0 }),
                 backgroundColor: color + 'b3',
                 borderColor: color,
                 borderWidth: 1
@@ -1471,10 +1477,16 @@ function renderTotalAmountChart(summaries) {
     } else {
         const color = getSeriesColor(0);
         const byDate = new Map();
-        summaries.forEach(s => byDate.set(s.date, (byDate.get(s.date) || 0) + s.totalAmount));
+        summaries.forEach(s => {
+            const entry = byDate.get(s.date) || { total: 0, count: 0 };
+            entry.total += s.totalAmount;
+            entry.count += s.count;
+            byDate.set(s.date, entry);
+        });
         datasets = [{
             label: 'Total',
-            data: dates.map(d => byDate.get(d) || 0),
+            data: dates.map(d => byDate.get(d)?.total || 0),
+            _meta: dates.map(d => byDate.get(d) || { total: 0, count: 0 }),
             backgroundColor: color + 'b3',
             borderColor: color,
             borderWidth: 1
@@ -1491,6 +1503,14 @@ function renderTotalAmountChart(summaries) {
                 legend: {
                     display: datasets.length > 1,
                     labels: legendLabels()
+                },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => {
+                            const meta = ctx.dataset._meta[ctx.dataIndex];
+                            return ` ${ctx.dataset.label}: ${meta.count} - ${meta.total.toFixed(3)}`;
+                        }
+                    }
                 }
             },
             scales: bbgScales()
