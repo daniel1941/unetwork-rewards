@@ -776,7 +776,7 @@ function buildGroupDropdown() {
 
     if (!hasGroups) {
         updateFilterCount('group-count', 0);
-        updateCumulativeToggleVisibility();
+        syncCumulativeToggles();
         return;
     }
 
@@ -793,7 +793,6 @@ function buildGroupDropdown() {
             if (!available.has(lic)) selectedLicenses.delete(lic);
         }
         updateFilterCount('group-count', 0);
-        updateCumulativeToggleVisibility();
         buildGroupDropdown();
         buildLicensesDropdown();
         buildTaskDropdown();
@@ -819,7 +818,7 @@ function buildGroupDropdown() {
             }
 
             updateFilterCount('group-count', selectedGroups.size);
-            updateCumulativeToggleVisibility();
+            syncCumulativeToggles();
             refreshGroupDisabledState();
             buildLicensesDropdown();
             buildTaskDropdown();
@@ -831,7 +830,7 @@ function buildGroupDropdown() {
     });
 
     updateFilterCount('group-count', selectedGroups.size);
-    updateCumulativeToggleVisibility();
+    syncCumulativeToggles();
     refreshGroupDisabledState();
 }
 
@@ -1121,7 +1120,7 @@ function initializeCumulativeToggles() {
     }
 }
 
-function updateCumulativeToggleVisibility() {
+function syncCumulativeToggles() {
     const showToggle = selectedGroups.size > 1;
 
     const totalWrap = document.getElementById('total-cumulative-toggle-wrap');
@@ -1133,10 +1132,8 @@ function updateCumulativeToggleVisibility() {
     if (!showToggle) {
         totalChartCumulative = false;
         averageChartCumulative = false;
-        const totalToggle = document.getElementById('total-cumulative-toggle');
-        if (totalToggle) totalToggle.checked = false;
-        const averageToggle = document.getElementById('average-cumulative-toggle');
-        if (averageToggle) averageToggle.checked = false;
+        if (totalWrap) totalWrap.querySelector('input').checked = false;
+        if (averageWrap) averageWrap.querySelector('input').checked = false;
     }
 }
 
@@ -1566,6 +1563,18 @@ function renderTotalAmountChart(summaries) {
     });
 }
 
+function buildDayAggAvg(entries) {
+    const dayAgg = new Map();
+    entries.forEach(s => {
+        if (!dayAgg.has(s.date)) dayAgg.set(s.date, { total: 0, count: 0, licenses: 0 });
+        const d = dayAgg.get(s.date);
+        d.total += s.averageAmount;
+        d.count += s.count;
+        d.licenses += 1;
+    });
+    return dayAgg;
+}
+
 function renderAverageChart(summaries) {
     const canvas = document.getElementById('averageChart');
     if (!canvas) return;
@@ -1605,16 +1614,7 @@ function renderAverageChart(summaries) {
     } else if (splitByGroup) {
         rewardDatasets = activeGroups.map((group, i) => {
             const color = getSeriesColor(i);
-            const dayAgg = new Map();
-            summaries
-                .filter(s => licenseGroupMap.get(s.licenseId)?.has(group))
-                .forEach(s => {
-                    if (!dayAgg.has(s.date)) dayAgg.set(s.date, { total: 0, count: 0, licenses: 0 });
-                    const d = dayAgg.get(s.date);
-                    d.total += s.totalAmount;
-                    d.count += s.count;
-                    d.licenses += 1;
-                });
+            const dayAgg = buildDayAggAvg(summaries.filter(s => licenseGroupMap.get(s.licenseId)?.has(group)));
             const meta = dates.map(d => dayAgg.get(d) || null);
             return {
                 type: 'line',
@@ -1635,14 +1635,7 @@ function renderAverageChart(summaries) {
             };
         });
     } else {
-        const dayAgg = new Map();
-        summaries.forEach(s => {
-            if (!dayAgg.has(s.date)) dayAgg.set(s.date, { total: 0, count: 0, licenses: 0 });
-            const d = dayAgg.get(s.date);
-            d.total += s.totalAmount;
-            d.count += s.count;
-            d.licenses += 1;
-        });
+        const dayAgg = buildDayAggAvg(summaries);
         const c0 = getSeriesColor(0);
         const rewardsMeta = dates.map(d => dayAgg.get(d) || null);
         rewardDatasets = [{
