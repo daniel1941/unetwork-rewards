@@ -41,7 +41,7 @@ let refreshIntervalId = null;
 let currentDateFilter = 'current_month';
 let rawAllocations = null;
 
-const NO_TASK_LABEL = '(none)';
+const NO_TASK_LABEL = 'PoW';
 
 const tableComparators = {
     date: (a, b) => a.date.localeCompare(b.date),
