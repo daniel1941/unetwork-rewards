@@ -48,6 +48,15 @@
             <div class="filter-dropdown-panel" id="licenses-dropdown-panel"></div>
         </div>
 
+        <div class="filter-dropdown" id="task-filter-dropdown">
+            <button class="filter-dropdown-btn" type="button" id="task-dropdown-trigger" disabled>
+                Task
+                <span class="filter-dropdown-count" id="task-count"></span>
+                <span class="filter-dropdown-arrow">▾</span>
+            </button>
+            <div class="filter-dropdown-panel" id="task-dropdown-panel"></div>
+        </div>
+
         <button id="theme-toggle" class="theme-toggle-btn" type="button" title="Toggle light/dark theme">◑</button>
         <div class="wallet-menu" id="wallet-menu">
             <button id="auth-status" class="status-badge" type="button">Checking...</button>
@@ -121,6 +130,7 @@
                         <col class="col-date">
                         <col class="col-license-id">
                         <col class="col-license">
+                        <col class="col-task">
                         <col class="col-uptime">
                         <col class="col-count">
                         <col class="col-total">
@@ -131,6 +141,7 @@
                             <th><button type="button" class="sort-button" data-sort-key="date"><span>Date UTC</span></button></th>
                             <th><button type="button" class="sort-button" data-sort-key="licenseId"><span>License Id</span></button></th>
                             <th><button type="button" class="sort-button" data-sort-key="license"><span>License Alias</span></button></th>
+                            <th><button type="button" class="sort-button" data-sort-key="task"><span>Task</span></button></th>
                             <th><button type="button" class="sort-button" data-sort-key="uptime"><span>Uptime</span></button></th>
                             <th><button type="button" class="sort-button" data-sort-key="count"><span>Cnt</span></button></th>
                             <th><button type="button" class="sort-button" data-sort-key="totalAmount"><span>Total</span></button></th>

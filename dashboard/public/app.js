@@ -31,6 +31,7 @@ let licenseAnalyticsMap = new Map(); // Map<licenseId, Map<date, uptime 0–1>>
 let availableGroups = [];
 let selectedGroups = new Set();
 let selectedLicenses = new Set();
+let selectedTasks = new Set();
 let web3Account = '';
 let web3Signature = '';
 let web3Busy = false;
@@ -38,10 +39,13 @@ let refreshIntervalId = null;
 let currentDateFilter = 'current_month';
 let rawAllocations = null;
 
+const NO_TASK_LABEL = '(none)';
+
 const tableComparators = {
     date: (a, b) => a.date.localeCompare(b.date),
     licenseId: (a, b) => (a.licenseId ?? '').localeCompare(b.licenseId ?? ''),
     license: (a, b) => resolveLicenseAlias(a.licenseId).localeCompare(resolveLicenseAlias(b.licenseId)),
+    task: (a, b) => (a.taskKey ?? '').localeCompare(b.taskKey ?? ''),
     uptime: (a, b) => (licenseUptimeMap.get(a.licenseId) ?? -1) - (licenseUptimeMap.get(b.licenseId) ?? -1),
     count: (a, b) => a.count - b.count,
     totalAmount: (a, b) => a.totalAmount - b.totalAmount,
@@ -51,6 +55,7 @@ const tableComparators = {
 const tableDefaultDirections = {
     date: 'desc',
     license: 'asc',
+    task: 'asc',
     count: 'desc',
     totalAmount: 'desc',
     averageAmount: 'desc'
@@ -230,6 +235,9 @@ function getGlobalFilteredSummaries() {
     if (selectedLicenses.size > 0) {
         summaries = summaries.filter(s => selectedLicenses.has(resolveLicenseAlias(s.licenseId)));
     }
+    if (selectedTasks.size > 0) {
+        summaries = summaries.filter(s => selectedTasks.has(s.taskKey));
+    }
     return summaries;
 }
 
@@ -243,6 +251,21 @@ function getAvailableLicenses() {
     }
 
     return [...new Set(summaries.map(s => resolveLicenseAlias(s.licenseId)))].sort();
+}
+
+function getAvailableTasks() {
+    const filtered = getFilteredData();
+    if (!filtered) return [];
+    let summaries = filtered.summaries;
+
+    if (selectedGroups.size > 0) {
+        summaries = summaries.filter(s => licenseInSelectedGroups(s.licenseId));
+    }
+    if (selectedLicenses.size > 0) {
+        summaries = summaries.filter(s => selectedLicenses.has(resolveLicenseAlias(s.licenseId)));
+    }
+
+    return [...new Set(summaries.map(s => s.taskKey))].sort();
 }
 
 function getFilteredLicenses() {
@@ -504,6 +527,7 @@ async function loadLicenses() {
 
         buildGroupDropdown();
         buildLicensesDropdown();
+        buildTaskDropdown();
 
         if (rawAllocations) {
             currentData = processAllocations(rawAllocations);
@@ -767,6 +791,7 @@ function buildGroupDropdown() {
         updateFilterCount('group-count', 0);
         buildGroupDropdown();
         buildLicensesDropdown();
+        buildTaskDropdown();
         rerenderCharts();
     });
     panel.appendChild(clearBtn);
@@ -791,6 +816,7 @@ function buildGroupDropdown() {
             updateFilterCount('group-count', selectedGroups.size);
             refreshGroupDisabledState();
             buildLicensesDropdown();
+            buildTaskDropdown();
             rerenderCharts();
         });
         item.appendChild(cb);
@@ -839,6 +865,7 @@ function buildLicensesDropdown() {
             else selectedLicenses.delete(alias);
             updateFilterCount('licenses-count', selectedLicenses.size);
             refreshLicensesDisabledState();
+            buildTaskDropdown();
             rerenderCharts();
         });
         item.appendChild(cb);
@@ -850,6 +877,60 @@ function buildLicensesDropdown() {
     applyLicenseSearch(panel);
     updateFilterCount('licenses-count', selectedLicenses.size);
     refreshLicensesDisabledState();
+}
+
+function buildTaskDropdown() {
+    const panel = document.getElementById('task-dropdown-panel');
+    const trigger = document.getElementById('task-dropdown-trigger');
+    if (!panel || !trigger) return;
+
+    const tasks = getAvailableTasks();
+    const availableSet = new Set(tasks);
+    for (const t of [...selectedTasks]) {
+        if (!availableSet.has(t)) selectedTasks.delete(t);
+    }
+
+    trigger.disabled = tasks.length === 0;
+    panel.innerHTML = '';
+
+    if (tasks.length === 0) {
+        updateFilterCount('task-count', 0);
+        return;
+    }
+
+    const clearBtn = document.createElement('button');
+    clearBtn.type = 'button';
+    clearBtn.className = 'filter-dropdown-clear';
+    clearBtn.textContent = 'Clear all';
+    clearBtn.style.display = selectedTasks.size > 0 ? '' : 'none';
+    clearBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        selectedTasks.clear();
+        updateFilterCount('task-count', 0);
+        buildTaskDropdown();
+        rerenderCharts();
+    });
+    panel.appendChild(clearBtn);
+
+    tasks.forEach(task => {
+        const item = document.createElement('label');
+        item.className = 'filter-dropdown-item';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.value = task;
+        cb.checked = selectedTasks.has(task);
+        cb.addEventListener('change', () => {
+            if (cb.checked) selectedTasks.add(task);
+            else selectedTasks.delete(task);
+            updateFilterCount('task-count', selectedTasks.size);
+            rerenderCharts();
+        });
+        item.appendChild(cb);
+        item.appendChild(document.createTextNode(' ' + task));
+        panel.appendChild(item);
+    });
+
+    updateFilterCount('task-count', selectedTasks.size);
 }
 
 function applyLicenseSearch(panel) {
@@ -967,11 +1048,13 @@ function logout() {
         availableGroups = [];
         selectedGroups.clear();
         selectedLicenses.clear();
+        selectedTasks.clear();
         web3Signature = '';
         web3Account = '';
         stopAutoRefresh();
         buildGroupDropdown();
         buildLicensesDropdown();
+        buildTaskDropdown();
         checkAuth();
         updateWeb3Ui();
         resetSummary();
@@ -1202,12 +1285,14 @@ function processAllocations(allocations) {
         const dateObj = new Date(item.completedAt);
         const dateKey = dateObj.toISOString().split('T')[0];
         const licenseId = item.licenseId;
-        const key = `${dateKey}|${licenseId}`;
+        const taskKey = item.taskKey || NO_TASK_LABEL;
+        const key = `${dateKey}|${licenseId}|${taskKey}`;
 
         if (!grouped[key]) {
             grouped[key] = {
                 date: dateKey,
                 licenseId: licenseId,
+                taskKey: taskKey,
                 count: 0,
                 sumMicros: 0,
                 uptimeSum: 0,
@@ -1231,6 +1316,7 @@ function processAllocations(allocations) {
             date: g.date,
             licenseId: g.licenseId,
             licenseAlias: licenseAlias,
+            taskKey: g.taskKey,
             count: g.count,
             totalAmount: totalAmount,
             averageAmount: g.count > 0 ? totalAmount / g.count : 0,
@@ -1290,7 +1376,7 @@ function processAllocations(allocations) {
     });
 
     return {
-        summaries: summaries.sort((a, b) => b.date.localeCompare(a.date) || a.licenseAlias.localeCompare(b.licenseAlias)),
+        summaries: summaries.sort((a, b) => b.date.localeCompare(a.date) || a.licenseAlias.localeCompare(b.licenseAlias) || a.taskKey.localeCompare(b.taskKey)),
         totals: {
             count: totalCount,
             totalAmount: grandTotalAmount
@@ -1315,6 +1401,7 @@ function renderDashboard(data) {
 
     buildGroupDropdown();
     buildLicensesDropdown();
+    buildTaskDropdown();
 
     const summaries = getGlobalFilteredSummaries();
     renderTotalAmountChart(summaries);
@@ -1568,6 +1655,7 @@ function renderTable(summaries) {
             <td>${row.date}</td>
             <td>${row.licenseId ? row.licenseId.slice(-4) : ''}</td>
             <td>${resolveLicenseAlias(row.licenseId)}</td>
+            <td>${row.taskKey ?? NO_TASK_LABEL}</td>
             <td>${uptime != null ? (uptime * 100).toFixed(1) + '%' : '—'}</td>
             <td>${row.count}</td>
             <td>${row.totalAmount.toFixed(6)}</td>
